@@ -10,9 +10,10 @@ TOKEN_PATTERN = re.compile(r'__ANON:[A-Z]+_\d+__')
 
 
 class MappingManager:
-    def __init__(self, session_id: str, mappings_dir: str = "/tmp/anonymizer"):
+    def __init__(self, session_id: str, mappings_dir: str = "/tmp/anonymizer", persistent_path: Optional[str] = None):
         self.session_id = session_id
         self.mappings_dir = mappings_dir
+        self.persistent_path = persistent_path
         os.makedirs(mappings_dir, exist_ok=True)
 
         # forward: (value, category) -> token string
@@ -23,6 +24,10 @@ class MappingManager:
         self._counters: Dict[str, int] = {}
         # file path mappings: anon_path -> original_path
         self._file_paths: Dict[str, str] = {}
+
+        # If persistent_path exists, load it as base data before session data
+        if persistent_path and os.path.exists(persistent_path):
+            self._load_from_file(persistent_path)
 
     @property
     def _mapping_file(self) -> str:
@@ -61,15 +66,8 @@ class MappingManager:
     def get_original_path(self, anon_path: str) -> Optional[str]:
         return self._file_paths.get(anon_path)
 
-    def save(self) -> None:
-        data = {
-            "session_id": self.session_id,
-            "forward": self._forward,
-            "reverse": self._reverse,
-            "counters": self._counters,
-            "file_paths": self._file_paths,
-        }
-        tmp_path = self._mapping_file + ".tmp"
+    def _write_to_file(self, path: str, data: dict) -> None:
+        tmp_path = path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             try:
@@ -77,21 +75,36 @@ class MappingManager:
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
         os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, self._mapping_file)
+        os.replace(tmp_path, path)
 
-    def load(self) -> None:
-        if not os.path.exists(self._mapping_file):
-            return
-        with open(self._mapping_file, "r", encoding="utf-8") as f:
+    def save(self, persist: bool = False) -> None:
+        data = {
+            "session_id": self.session_id,
+            "forward": self._forward,
+            "reverse": self._reverse,
+            "counters": self._counters,
+            "file_paths": self._file_paths,
+        }
+        self._write_to_file(self._mapping_file, data)
+        if persist and self.persistent_path:
+            self._write_to_file(self.persistent_path, data)
+
+    def _load_from_file(self, path: str) -> None:
+        with open(path, "r", encoding="utf-8") as f:
             fcntl.flock(f, fcntl.LOCK_SH)
             try:
                 data = json.load(f)
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
-        self._forward = data.get("forward", {})
-        self._reverse = data.get("reverse", {})
-        self._counters = data.get("counters", {})
-        self._file_paths = data.get("file_paths", {})
+        self._forward.update(data.get("forward", {}))
+        self._reverse.update(data.get("reverse", {}))
+        self._counters.update(data.get("counters", {}))
+        self._file_paths.update(data.get("file_paths", {}))
+
+    def load(self) -> None:
+        if not os.path.exists(self._mapping_file):
+            return
+        self._load_from_file(self._mapping_file)
 
     def summary(self) -> str:
         if not self._counters:

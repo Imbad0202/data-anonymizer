@@ -4,6 +4,30 @@ import os
 import tempfile
 from mapping_manager import MappingManager
 
+
+class TestPersistentMapping:
+    def setup_method(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.persistent_path = os.path.join(self.tmpdir, "persistent.json")
+
+    def test_persistent_mapping_carries_across_sessions(self):
+        mgr1 = MappingManager(session_id="s1", mappings_dir=self.tmpdir, persistent_path=self.persistent_path)
+        t1 = mgr1.get_or_create_token("張三", "PERSON")
+        mgr1.save(persist=True)
+
+        mgr2 = MappingManager(session_id="s2", mappings_dir=self.tmpdir, persistent_path=self.persistent_path)
+        t2 = mgr2.get_or_create_token("張三", "PERSON")
+        assert t2 == t1
+
+    def test_persistent_disabled_by_default(self):
+        mgr1 = MappingManager(session_id="s1", mappings_dir=self.tmpdir)
+        mgr1.get_or_create_token("張三", "PERSON")
+        mgr1.save()
+
+        mgr2 = MappingManager(session_id="s2", mappings_dir=self.tmpdir)
+        t2 = mgr2.get_or_create_token("張三", "PERSON")
+        assert t2 == "__ANON:PERSON_001__"  # fresh counter, no persistence
+
 class TestMappingManager:
     def setup_method(self):
         self.tmpdir = tempfile.mkdtemp()
