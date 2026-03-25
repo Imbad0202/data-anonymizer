@@ -146,3 +146,34 @@ class Anonymizer:
             self.mapping.save()
 
         return anon_path, summary
+
+
+def cleanup(max_age_hours: int = 24) -> list:
+    """Remove anonymized temp files and session mappings older than max_age_hours.
+
+    Returns list of removed file paths.
+    """
+    import glob
+    import time
+
+    cutoff = time.time() - (max_age_hours * 3600)
+    removed = []
+    for f in glob.glob("/tmp/anonymizer/*"):
+        try:
+            if os.path.getmtime(f) < cutoff:
+                os.unlink(f)
+                removed.append(f)
+        except OSError:
+            pass
+    return removed
+
+
+if __name__ == "__main__":
+    import sys
+    if "--cleanup" in sys.argv:
+        removed = cleanup()
+        for f in removed:
+            print(f"Cleaned: {f}")
+        print(f"Total: {len(removed)} files removed")
+    else:
+        print("Usage: python3 anonymizer.py --cleanup")
