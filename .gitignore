@@ -1,0 +1,5 @@
+mappings/session_*.json
+mappings/persistent.json
+__pycache__/
+*.pyc
+.venv/
