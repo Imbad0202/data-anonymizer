@@ -1,3 +1,5 @@
+config.json
+learned_terms.json
 mappings/session_*.json
 mappings/persistent.json
 __pycache__/
