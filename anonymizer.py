@@ -1,0 +1,148 @@
+import os
+from typing import Dict, List, Optional, Tuple
+
+from models import Span, resolve_spans
+from mapping_manager import MappingManager
+from detectors.custom import CustomDetector
+from detectors.regex_detector import RegexDetector
+
+
+def get_parser(file_path: str):
+    """Return the appropriate parser instance for the given file extension, or None."""
+    from parsers.text import TextParser
+    from parsers.docx_parser import DocxParser
+    from parsers.xlsx_parser import XlsxParser
+    from parsers.pptx_parser import PptxParser
+    from parsers.pdf_parser import PdfParser
+
+    ext = os.path.splitext(file_path)[1].lower()
+    for parser_cls in (TextParser, DocxParser, XlsxParser, PptxParser, PdfParser):
+        if ext in parser_cls.EXTENSIONS:
+            return parser_cls()
+    return None
+
+
+class Anonymizer:
+    def __init__(self, config: dict, session_id: str, use_ner: bool = True):
+        self.config = config
+        self.session_id = session_id
+        self.use_ner = use_ner
+        self.persist_mapping: bool = config.get("persist_mapping", True)
+        self.max_file_pages: int = config.get("max_file_pages", 50)
+
+        self.mapping = MappingManager(session_id=session_id)
+
+        custom_terms: Dict[str, List[str]] = config.get("custom_terms", {})
+        substring_match: bool = config.get("substring_match", True)
+        self.custom_detector = CustomDetector(
+            custom_terms=custom_terms,
+            substring_match=substring_match,
+        )
+        self.regex_detector = RegexDetector()
+
+        if use_ner:
+            from detectors.ner import NERDetector
+            self.ner_detector = NERDetector()
+        else:
+            self.ner_detector = None
+
+    # ------------------------------------------------------------------
+    # Core pipeline helpers
+    # ------------------------------------------------------------------
+
+    def _collect_spans(self, text: str) -> List[Span]:
+        """Run all enabled detectors on text and return resolved spans."""
+        all_spans: List[Span] = []
+        all_spans.extend(self.custom_detector.detect(text))
+        all_spans.extend(self.regex_detector.detect(text))
+        if self.ner_detector is not None:
+            all_spans.extend(self.ner_detector.detect(text))
+        return resolve_spans(all_spans)
+
+    def _apply_spans(self, text: str, spans: List[Span]) -> str:
+        """Replace spans right-to-left so that earlier offsets are preserved."""
+        result = text
+        for span in sorted(spans, key=lambda s: s.start, reverse=True):
+            token = self.mapping.get_or_create_token(span.text, span.category)
+            result = result[: span.start] + token + result[span.end :]
+        return result
+
+    def _build_summary(self, spans: List[Span], file_path: Optional[str] = None) -> str:
+        if not spans:
+            prefix = f"檔案《{os.path.basename(file_path)}》：" if file_path else ""
+            return f"{prefix}未發現個資，文件未修改。"
+
+        category_counts: Dict[str, int] = {}
+        for span in spans:
+            category_counts[span.category] = category_counts.get(span.category, 0) + 1
+
+        parts = [f"{cat} {cnt} 個" for cat, cnt in sorted(category_counts.items())]
+        detail = "、".join(parts)
+
+        if file_path:
+            return f"已脫敏檔案《{os.path.basename(file_path)}》：{detail}"
+        return f"已脫敏：{detail}"
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def anonymize_text(self, text: str) -> Tuple[str, str]:
+        """
+        Anonymize plain text.
+
+        Returns
+        -------
+        (anonymized_text, summary)
+        """
+        spans = self._collect_spans(text)
+
+        if not spans:
+            return text, "未發現個資，文件未修改。"
+
+        anonymized = self._apply_spans(text, spans)
+        summary = self._build_summary(spans)
+
+        if self.persist_mapping:
+            self.mapping.save()
+
+        return anonymized, summary
+
+    def anonymize_file(self, file_path: str) -> Tuple[Optional[str], str]:
+        """
+        Parse a file, anonymize its content, and write the result to a temp path.
+
+        Returns
+        -------
+        (anon_file_path_or_None, summary)
+        """
+        parser = get_parser(file_path)
+        if parser is None:
+            return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
+
+        # PdfParser accepts max_pages; others accept only file_path
+        from parsers.pdf_parser import PdfParser
+        if isinstance(parser, PdfParser):
+            text = parser.parse(file_path, max_pages=self.max_file_pages)
+        else:
+            text = parser.parse(file_path)
+
+        spans = self._collect_spans(text)
+
+        if not spans:
+            summary = f"未發現個資，文件未修改。"
+            return None, summary
+
+        anonymized = self._apply_spans(text, spans)
+        summary = self._build_summary(spans, file_path=file_path)
+
+        # Write anonymized content to registered temp path
+        anon_path = self.mapping.register_file_path(file_path)
+        os.makedirs(os.path.dirname(anon_path), exist_ok=True)
+        with open(anon_path, "w", encoding="utf-8") as f:
+            f.write(anonymized)
+
+        if self.persist_mapping:
+            self.mapping.save()
+
+        return anon_path, summary
