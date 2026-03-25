@@ -56,17 +56,31 @@ def _updated_input(new_file_path: str, context: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _is_internal_file(path: str) -> bool:
-    """Return True if the path is an anonymizer-internal file that should never be exposed."""
+    """Return True if the path is an anonymizer sensitive data file that must not be exposed.
+
+    Only protects config.json, learned_terms.json, and mapping files.
+    Source code (.py) files are NOT protected — Claude needs to read them for development.
+    """
     norm = os.path.normpath(os.path.realpath(path)) if os.path.exists(path) else os.path.normpath(path)
-    # ~/.claude/anonymizer/* is internal
     internal_dir = os.path.normpath(ANONYMIZER_DIR)
+
+    # Protect specific sensitive files within the anonymizer directory
     if norm.startswith(internal_dir):
-        return True
-    # /tmp/anonymizer/session_*.json is internal
+        basename = os.path.basename(norm)
+        # config.json and learned_terms.json contain sensitive term lists
+        if basename in ("config.json", "learned_terms.json"):
+            return True
+        # mappings/ directory contains token↔value maps
+        mappings_dir = os.path.join(internal_dir, "mappings")
+        if norm.startswith(mappings_dir):
+            return True
+
+    # /tmp/anonymizer/session_*.json contains sensitive mapping data
     if norm.startswith(os.path.normpath(TMP_ANONYMIZER_DIR)):
         basename = os.path.basename(norm)
         if basename.startswith("session_") and basename.endswith(".json"):
             return True
+
     return False
 
 
@@ -177,10 +191,19 @@ def _handle_bash(tool_input: Dict, config: Dict) -> Dict[str, Any]:
     command = tool_input.get("command", "")
     scan_paths = config.get("scan_paths", [])
 
-    # 1. Block commands targeting ~/.claude/anonymizer/
+    # 1. Block commands that read sensitive anonymizer data files
+    #    But whitelist: running the anonymizer's own Python scripts (hook invocations,
+    #    setup, tests, etc.) and general development commands (git, pip, pytest)
     anonymizer_dir = os.path.expanduser("~/.claude/anonymizer/")
     if anonymizer_dir in command or ANONYMIZER_DIR in command:
-        return _deny("此指令嘗試存取脫敏器內部目錄，已被攔截。")
+        # Whitelist: running Python scripts from the anonymizer (hook itself, setup, tests)
+        if command.strip().startswith(os.path.join(ANONYMIZER_DIR, ".venv/bin/python")):
+            pass  # allow hook's own execution
+        elif any(safe in command for safe in ["git ", "pip ", "pip3 ", "pytest", "python3 -m pytest"]):
+            pass  # allow development commands
+        elif "config.json" in command or "learned_terms" in command or "mappings/" in command:
+            return _deny("此指令嘗試存取脫敏器敏感資料，已被攔截。")
+        # Otherwise allow — source code access is fine
 
     # 2. If command contains file-read commands AND sensitive paths → deny
     if FILE_READ_COMMANDS.search(command):

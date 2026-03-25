@@ -61,6 +61,36 @@ class TestHookRouter:
         result = handle_pretool_use(stdin_data, self.config, use_ner=False)
         assert result == {}
 
+    def test_read_anonymizer_source_code_allowed(self):
+        """Source .py files should NOT be blocked — only config/mapping files."""
+        stdin_data = {"session_id": "test_session", "tool_name": "Read", "tool_input": {"file_path": os.path.expanduser("~/.claude/anonymizer/hook_router.py")}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result == {}
+
+    def test_read_anonymizer_mapping_denied(self):
+        stdin_data = {"session_id": "test_session", "tool_name": "Read", "tool_input": {"file_path": os.path.expanduser("~/.claude/anonymizer/mappings/session_abc.json")}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_bash_running_hook_itself_allowed(self):
+        """The hook's own Python invocation must not block itself."""
+        cmd = os.path.expanduser("~/.claude/anonymizer/.venv/bin/python3") + " " + os.path.expanduser("~/.claude/anonymizer/hook_router.py")
+        stdin_data = {"session_id": "test_session", "tool_name": "Bash", "tool_input": {"command": cmd}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result == {}
+
+    def test_bash_cat_config_denied(self):
+        cmd = "cat " + os.path.expanduser("~/.claude/anonymizer/config.json")
+        stdin_data = {"session_id": "test_session", "tool_name": "Bash", "tool_input": {"command": cmd}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_bash_git_in_anonymizer_allowed(self):
+        cmd = "cd " + os.path.expanduser("~/.claude/anonymizer") + " && git status"
+        stdin_data = {"session_id": "test_session", "tool_name": "Bash", "tool_input": {"command": cmd}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result == {}
+
     def test_no_pii_approves_original(self):
         test_file = "/tmp/test_scan/clean.md"
         with open(test_file, 'w') as f:
