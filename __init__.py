@@ -9,3 +9,4 @@ _mod = _ilu.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 
 Anonymizer = _mod.Anonymizer
+get_parser = _mod.get_parser

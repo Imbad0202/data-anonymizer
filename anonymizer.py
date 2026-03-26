@@ -103,12 +103,7 @@ class Anonymizer:
         if parser is None:
             return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
 
-        # PdfParser accepts max_pages; others accept only file_path
-        from parsers.pdf_parser import PdfParser
-        if isinstance(parser, PdfParser):
-            text = parser.parse(file_path, max_pages=self.max_file_pages)
-        else:
-            text = parser.parse(file_path)
+        text = parser.parse(file_path)
 
         spans = self._collect_spans(text)
 

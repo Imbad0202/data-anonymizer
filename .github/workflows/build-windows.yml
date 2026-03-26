@@ -1,0 +1,160 @@
+name: Build Windows Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - name: Full
+            lite: false
+            artifact: DataAnonymizer
+          - name: Lite
+            lite: true
+            artifact: DataAnonymizerLite
+
+    runs-on: windows-latest
+    name: Build ${{ matrix.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        shell: pwsh
+        run: |
+          # Remove pre-installed tools to free disk (~5GB)
+          Remove-Item -Path "C:\hostedtoolcache\CodeQL" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "C:\hostedtoolcache\go" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "C:\hostedtoolcache\Ruby" -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller
+          pip install opencv-python-headless pytesseract Pillow numpy
+          pip install pdfplumber python-docx openpyxl python-pptx
+          if ("${{ matrix.lite }}" -eq "false") {
+            pip install torch --index-url https://download.pytorch.org/whl/cpu
+            pip install transformers ckip-transformers
+          }
+
+      - name: Download Tesseract portable
+        shell: pwsh
+        run: |
+          # Download UB-Mannheim Tesseract installer (portable extraction)
+          $tesseractUrl = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.5.0.20241111/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
+          Invoke-WebRequest -Uri $tesseractUrl -OutFile tesseract-setup.exe
+
+          # Silent install to temp location
+          Start-Process -Wait -FilePath tesseract-setup.exe -ArgumentList "/S", "/D=C:\tesseract"
+
+          # Copy to bundle directory
+          New-Item -ItemType Directory -Path "_internal\tesseract" -Force
+          Copy-Item "C:\tesseract\*" "_internal\tesseract\" -Recurse
+
+          # Download additional language data (Traditional Chinese)
+          $tessdata = "_internal\tesseract\tessdata"
+          $chiTraUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main/chi_tra.traineddata"
+          Invoke-WebRequest -Uri $chiTraUrl -OutFile "$tessdata\chi_tra.traineddata"
+
+          # Verify
+          Write-Host "Tesseract files:"
+          Get-ChildItem "_internal\tesseract" -Recurse | Select-Object FullName
+
+      - name: Download OpenCV DNN face model
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "models" -Force
+
+          $prototxt = "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
+          $caffemodel = "https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
+
+          Invoke-WebRequest -Uri $prototxt -OutFile "models\deploy.prototxt"
+          Invoke-WebRequest -Uri $caffemodel -OutFile "models\res10_300x300_ssd_iter_140000.caffemodel"
+
+          Write-Host "Model files:"
+          Get-ChildItem "models" | Select-Object Name, Length
+
+      - name: Create default config
+        shell: pwsh
+        run: |
+          $config = @{
+            version = 1
+            custom_terms = @{}
+            file_types = @(".txt", ".md", ".docx", ".xlsx", ".pptx", ".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff")
+            logo_templates = @()
+            substring_match = $true
+          } | ConvertTo-Json -Depth 3
+          $config | Out-File -FilePath "config.json" -Encoding utf8
+
+      - name: Create assets directory
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "assets" -Force
+          # Placeholder — replace with actual icon in repo
+          if (-not (Test-Path "assets\icon.ico")) {
+            Write-Host "No icon.ico found, skipping icon"
+          }
+
+      - name: Build with PyInstaller
+        shell: pwsh
+        run: |
+          if ("${{ matrix.lite }}" -eq "true") {
+            pyinstaller anonymizer.spec -- --lite
+          } else {
+            pyinstaller anonymizer.spec
+          }
+
+          Write-Host "Build output:"
+          Get-ChildItem "dist\${{ matrix.artifact }}" | Select-Object Name, Length
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          $issFile = if ("${{ matrix.lite }}" -eq "true") { "installer-lite.iss" } else { "installer.iss" }
+
+          # Inno Setup is pre-installed on windows-latest
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $issFile
+
+          Write-Host "Installer output:"
+          Get-ChildItem "dist\installer" | Select-Object Name, Length
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-installer
+          path: dist/installer/*.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Create Release
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          files: |
+            artifacts/**/*.exe
