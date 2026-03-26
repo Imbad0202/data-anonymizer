@@ -1,4 +1,4 @@
-name: Build Windows Installer
+name: Build Windows Portable
 
 on:
   push:
@@ -30,7 +30,6 @@ jobs:
       - name: Free disk space
         shell: pwsh
         run: |
-          # Remove pre-installed tools to free disk (~5GB)
           Remove-Item -Path "C:\hostedtoolcache\CodeQL" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "C:\hostedtoolcache\go" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "C:\hostedtoolcache\Ruby" -Recurse -Force -ErrorAction SilentlyContinue
@@ -56,25 +55,17 @@ jobs:
       - name: Download Tesseract portable
         shell: pwsh
         run: |
-          # Download UB-Mannheim Tesseract installer (portable extraction)
           $tesseractUrl = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.5.0.20241111/tesseract-ocr-w64-setup-5.5.0.20241111.exe"
           Invoke-WebRequest -Uri $tesseractUrl -OutFile tesseract-setup.exe
 
-          # Silent install to temp location
           Start-Process -Wait -FilePath tesseract-setup.exe -ArgumentList "/S", "/D=C:\tesseract"
 
-          # Copy to bundle directory
           New-Item -ItemType Directory -Path "_internal\tesseract" -Force
           Copy-Item "C:\tesseract\*" "_internal\tesseract\" -Recurse
 
-          # Download additional language data (Traditional Chinese)
           $tessdata = "_internal\tesseract\tessdata"
           $chiTraUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main/chi_tra.traineddata"
           Invoke-WebRequest -Uri $chiTraUrl -OutFile "$tessdata\chi_tra.traineddata"
-
-          # Verify
-          Write-Host "Tesseract files:"
-          Get-ChildItem "_internal\tesseract" -Recurse | Select-Object FullName
 
       - name: Download OpenCV DNN face model
         shell: pwsh
@@ -86,9 +77,6 @@ jobs:
 
           Invoke-WebRequest -Uri $prototxt -OutFile "models\deploy.prototxt"
           Invoke-WebRequest -Uri $caffemodel -OutFile "models\res10_300x300_ssd_iter_140000.caffemodel"
-
-          Write-Host "Model files:"
-          Get-ChildItem "models" | Select-Object Name, Length
 
       - name: Create default config
         shell: pwsh
@@ -106,10 +94,6 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path "assets" -Force
-          # Placeholder — replace with actual icon in repo
-          if (-not (Test-Path "assets\icon.ico")) {
-            Write-Host "No icon.ico found, skipping icon"
-          }
 
       - name: Build with PyInstaller
         shell: pwsh
@@ -120,25 +104,36 @@ jobs:
             pyinstaller anonymizer.spec
           }
 
-          Write-Host "Build output:"
-          Get-ChildItem "dist\${{ matrix.artifact }}" | Select-Object Name, Length
-
-      - name: Build installer with Inno Setup
+      - name: Package as portable zip
         shell: pwsh
         run: |
-          $issFile = if ("${{ matrix.lite }}" -eq "true") { "installer-lite.iss" } else { "installer.iss" }
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $zipName = "${{ matrix.artifact }}-${version}-Portable.zip"
 
-          # Inno Setup is pre-installed on windows-latest
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $issFile
+          # Add a launcher readme
+          @"
+          資料脫敏工具 Data Anonymizer (${{ matrix.name }})
+          ==========================================
 
-          Write-Host "Installer output:"
-          Get-ChildItem "dist\installer" | Select-Object Name, Length
+          使用方式：
+          1. 將學校設定檔 (.anonymizer-config.zip) 放到此資料夾
+          2. 雙擊 ${{ matrix.artifact }}.exe 啟動
+          3. 首次啟動會自動提示匯入設定
 
-      - name: Upload installer artifact
+          免安裝，不需要管理者權限。
+          刪除此資料夾即可移除。
+          "@ | Out-File -FilePath "dist\${{ matrix.artifact }}\使用說明.txt" -Encoding utf8
+
+          Compress-Archive -Path "dist\${{ matrix.artifact }}\*" -DestinationPath "dist\$zipName"
+
+          Write-Host "Portable zip:"
+          Get-ChildItem "dist\$zipName" | Select-Object Name, Length
+
+      - name: Upload portable zip
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}-installer
-          path: dist/installer/*.exe
+          name: ${{ matrix.artifact }}-portable
+          path: dist/*-Portable.zip
 
   release:
     needs: build
@@ -156,5 +151,21 @@ jobs:
         with:
           draft: false
           generate_release_notes: true
+          body: |
+            ## 下載
+
+            | 版本 | 說明 | 適用 |
+            |------|------|------|
+            | **DataAnonymizerLite-Portable.zip** | 免安裝版（推薦），僅自訂詞彙+正則偵測 | 一般使用 |
+            | **DataAnonymizer-Portable.zip** | 免安裝版，含 NER 人名偵測 | 需要自動偵測人名 |
+
+            ## 使用方式
+
+            1. 下載 zip 解壓到任意位置（桌面、隨身碟皆可）
+            2. 將學校設定檔 (`.anonymizer-config.zip`) 放進同一資料夾
+            3. 雙擊 `.exe` 啟動
+            4. 首次啟動會自動提示匯入設定
+
+            **不需要安裝、不需要管理者權限。**
           files: |
-            artifacts/**/*.exe
+            artifacts/**/*.zip
