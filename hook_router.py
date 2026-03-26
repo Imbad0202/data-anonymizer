@@ -10,12 +10,15 @@ import re
 import sys
 from typing import Any, Dict
 
+from mapping_manager import TMP_ANONYMIZER_DIR
+
 # ---------------------------------------------------------------------------
 # Internal path constants
 # ---------------------------------------------------------------------------
 
 ANONYMIZER_DIR = os.path.expanduser("~/.claude/anonymizer")
-TMP_ANONYMIZER_DIR = "/tmp/anonymizer"
+_NORM_ANONYMIZER_DIR = os.path.normpath(ANONYMIZER_DIR)
+_NORM_TMP_DIR = os.path.normpath(TMP_ANONYMIZER_DIR)
 
 # Commands that read file contents and could leak sensitive data
 FILE_READ_COMMANDS = re.compile(
@@ -62,21 +65,20 @@ def _is_internal_file(path: str) -> bool:
     Source code (.py) files are NOT protected — Claude needs to read them for development.
     """
     norm = os.path.normpath(os.path.realpath(path)) if os.path.exists(path) else os.path.normpath(path)
-    internal_dir = os.path.normpath(ANONYMIZER_DIR)
 
     # Protect specific sensitive files within the anonymizer directory
-    if norm.startswith(internal_dir):
+    if norm.startswith(_NORM_ANONYMIZER_DIR):
         basename = os.path.basename(norm)
         # config.json and learned_terms.json contain sensitive term lists
         if basename in ("config.json", "learned_terms.json"):
             return True
         # mappings/ directory contains token↔value maps
-        mappings_dir = os.path.join(internal_dir, "mappings")
+        mappings_dir = os.path.join(_NORM_ANONYMIZER_DIR, "mappings")
         if norm.startswith(mappings_dir):
             return True
 
     # /tmp/anonymizer/session_*.json contains sensitive mapping data
-    if norm.startswith(os.path.normpath(TMP_ANONYMIZER_DIR)):
+    if norm.startswith(_NORM_TMP_DIR):
         basename = os.path.basename(norm)
         if basename.startswith("session_") and basename.endswith(".json"):
             return True
@@ -103,9 +105,9 @@ def _has_matching_file_type(path: str, file_types) -> bool:
 
 
 def _is_anonymized_temp(path: str) -> bool:
-    """Return True if the path is an /tmp/anonymizer/anonymized_* file."""
+    """Return True if the path is an anonymized temp file under TMP_ANONYMIZER_DIR."""
     norm = os.path.normpath(path)
-    return norm.startswith(os.path.normpath(TMP_ANONYMIZER_DIR) + os.sep) and \
+    return norm.startswith(_NORM_TMP_DIR + os.sep) and \
            os.path.basename(norm).startswith("anonymized_")
 
 

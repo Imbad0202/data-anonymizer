@@ -72,15 +72,17 @@ def main():
 
     with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
-    os.chmod(CONFIG_PATH, stat.S_IRUSR | stat.S_IWUSR)
 
     if not os.path.exists(LEARNED_PATH):
         with open(LEARNED_PATH, 'w') as f:
             json.dump({"confirmed_sensitive": [], "confirmed_safe": []}, f)
-        os.chmod(LEARNED_PATH, stat.S_IRUSR | stat.S_IWUSR)
 
     os.makedirs(MAPPINGS_DIR, exist_ok=True)
-    os.chmod(MAPPINGS_DIR, stat.S_IRWXU)
+
+    if sys.platform != "win32":
+        os.chmod(CONFIG_PATH, stat.S_IRUSR | stat.S_IWUSR)
+        os.chmod(LEARNED_PATH, stat.S_IRUSR | stat.S_IWUSR)
+        os.chmod(MAPPINGS_DIR, stat.S_IRWXU)
 
     print(f"\n✅ 設定已存到 {CONFIG_PATH}")
     print("✅ 檔案權限已設定 (chmod 600/700)")

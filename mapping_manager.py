@@ -1,16 +1,42 @@
 import re
 import os
+import sys
 import json
-import fcntl
 import hashlib
+import tempfile
 from typing import Dict, Optional
+
+# Cross-platform temp directory
+TMP_ANONYMIZER_DIR = os.path.join(tempfile.gettempdir(), "anonymizer")
+
+# Cross-platform file locking
+# Windows msvcrt does not support shared locks, so all locks are exclusive.
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock_file(f, exclusive: bool = True) -> None:
+        # msvcrt only supports exclusive locks; `exclusive` param ignored on Windows
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+
+    def _unlock_file(f) -> None:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _lock_file(f, exclusive: bool = True) -> None:
+        fcntl.flock(f, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+
+    def _unlock_file(f) -> None:
+        fcntl.flock(f, fcntl.LOCK_UN)
 
 
 TOKEN_PATTERN = re.compile(r'__ANON:[A-Z]+_\d+__')
 
 
 class MappingManager:
-    def __init__(self, session_id: str, mappings_dir: str = "/tmp/anonymizer", persistent_path: Optional[str] = None, reversible: bool = True):
+    def __init__(self, session_id: str, mappings_dir: str = TMP_ANONYMIZER_DIR, persistent_path: Optional[str] = None, reversible: bool = True):
         self.session_id = session_id
         self.mappings_dir = mappings_dir
         self.persistent_path = persistent_path
@@ -64,7 +90,7 @@ class MappingManager:
 
     def register_file_path(self, original_path: str) -> str:
         path_hash = hashlib.sha256(original_path.encode("utf-8")).hexdigest()[:16]
-        anon_path = f"/tmp/anonymizer/anonymized_{path_hash}.txt"
+        anon_path = os.path.join(TMP_ANONYMIZER_DIR, f"anonymized_{path_hash}.txt")
         self._file_paths[anon_path] = original_path
         return anon_path
 
@@ -74,12 +100,13 @@ class MappingManager:
     def _write_to_file(self, path: str, data: dict) -> None:
         tmp_path = path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
+            _lock_file(f, exclusive=True)
             try:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-        os.chmod(tmp_path, 0o600)
+                _unlock_file(f)
+        if sys.platform != "win32":
+            os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, path)
 
     def save(self, persist: bool = False) -> None:
@@ -100,11 +127,11 @@ class MappingManager:
 
     def _load_from_file(self, path: str) -> None:
         with open(path, "r", encoding="utf-8") as f:
-            fcntl.flock(f, fcntl.LOCK_SH)
+            _lock_file(f, exclusive=False)
             try:
                 data = json.load(f)
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
+                _unlock_file(f)
         self._forward.update(data.get("forward", {}))
         self._reverse.update(data.get("reverse", {}))
         self._counters.update(data.get("counters", {}))

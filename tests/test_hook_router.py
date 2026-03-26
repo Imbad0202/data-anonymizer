@@ -2,6 +2,7 @@ import pytest
 import os
 import tempfile
 from hook_router import handle_pretool_use
+from mapping_manager import TMP_ANONYMIZER_DIR
 
 class TestHookRouter:
     def setup_method(self):
@@ -42,7 +43,7 @@ class TestHookRouter:
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     def test_edit_anonymized_temp_approved(self):
-        stdin_data = {"session_id": "test_session", "tool_name": "Edit", "tool_input": {"file_path": "/tmp/anonymizer/anonymized_abc123.txt"}}
+        stdin_data = {"session_id": "test_session", "tool_name": "Edit", "tool_input": {"file_path": os.path.join(TMP_ANONYMIZER_DIR, "anonymized_abc123.txt")}}
         result = handle_pretool_use(stdin_data, self.config, use_ner=False)
         assert result == {}
 

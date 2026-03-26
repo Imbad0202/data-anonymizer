@@ -2,7 +2,7 @@ import pytest
 import json
 import os
 import tempfile
-from mapping_manager import MappingManager
+from mapping_manager import MappingManager, TMP_ANONYMIZER_DIR
 
 
 class TestPersistentMapping:
@@ -74,5 +74,5 @@ class TestMappingManager:
 
     def test_file_path_mapping(self):
         anon_path = self.mgr.register_file_path("/Users/imbad/Documents/report.docx")
-        assert anon_path.startswith("/tmp/anonymizer/anonymized_")
+        assert anon_path.startswith(os.path.join(TMP_ANONYMIZER_DIR, "anonymized_"))
         assert self.mgr.get_original_path(anon_path) == "/Users/imbad/Documents/report.docx"

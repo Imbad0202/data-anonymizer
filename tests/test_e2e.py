@@ -16,7 +16,7 @@ import pytest
 
 from hook_router import handle_pretool_use
 from restore import handle_post_tool_use
-from mapping_manager import TOKEN_PATTERN
+from mapping_manager import TOKEN_PATTERN, TMP_ANONYMIZER_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ class TestE2EPreToolUseDeny:
         stdin_data = {
             "session_id": "e2e_edit_temp",
             "tool_name": "Edit",
-            "tool_input": {"file_path": "/tmp/anonymizer/anonymized_abc123.txt"},
+            "tool_input": {"file_path": os.path.join(TMP_ANONYMIZER_DIR, "anonymized_abc123.txt")},
         }
 
         result = handle_pretool_use(stdin_data, config, use_ner=False)

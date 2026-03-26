@@ -9,7 +9,7 @@ import os
 import re
 import sys
 
-from mapping_manager import MappingManager, TOKEN_PATTERN
+from mapping_manager import MappingManager, TOKEN_PATTERN, TMP_ANONYMIZER_DIR
 
 # Anonymizer's own directory — never touch these files
 _ANONYMIZER_DIR = os.path.expanduser("~/.claude/anonymizer")
@@ -26,7 +26,7 @@ def _is_internal_file(file_path: str) -> bool:
         return False
 
 
-def handle_post_tool_use(stdin_data: dict, mappings_dir: str = "/tmp/anonymizer") -> None:
+def handle_post_tool_use(stdin_data: dict, mappings_dir: str = TMP_ANONYMIZER_DIR) -> None:
     """
     Process a PostToolUse event.
 

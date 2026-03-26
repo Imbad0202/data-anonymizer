@@ -2,7 +2,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 from models import Span, resolve_spans
-from mapping_manager import MappingManager
+from mapping_manager import MappingManager, TMP_ANONYMIZER_DIR
 from detectors import build_detectors, collect_spans
 
 
@@ -135,7 +135,7 @@ def cleanup(max_age_hours: int = 24) -> list:
 
     cutoff = time.time() - (max_age_hours * 3600)
     removed = []
-    for f in glob.glob("/tmp/anonymizer/*"):
+    for f in glob.glob(os.path.join(TMP_ANONYMIZER_DIR, "*")):
         try:
             if os.path.getmtime(f) < cutoff:
                 os.unlink(f)

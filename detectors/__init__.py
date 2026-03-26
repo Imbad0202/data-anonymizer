@@ -9,9 +9,6 @@ from detectors.custom import CustomDetector
 from detectors.regex_detector import RegexDetector
 
 
-# Default temp directory for anonymizer data
-TMP_ANONYMIZER_DIR = "/tmp/anonymizer"
-
 
 def build_detectors(config: dict, use_ner: bool) -> Tuple[CustomDetector, RegexDetector, Optional[object]]:
     """Build the standard detector set from config. Shared by Anonymizer and ImageAnonymizer."""
