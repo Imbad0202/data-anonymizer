@@ -120,13 +120,30 @@ jobs:
           資料脫敏工具 Data Anonymizer (${{ matrix.name }})
           ==========================================
 
-          使用方式：
+          【使用方式】
           1. 將學校設定檔 (.anonymizer-config.zip) 放到此資料夾
           2. 雙擊 ${{ matrix.artifact }}.exe 啟動
           3. 首次啟動會自動提示匯入設定
 
           免安裝，不需要管理者權限。
           刪除此資料夾即可移除。
+
+          【首次執行注意事項】
+
+          Windows SmartScreen 警告：
+            如果出現「Windows 已保護您的電腦」藍色畫面：
+            1. 點擊「其他資訊」（畫面左下方小字）
+            2. 點擊「仍要執行」
+            這是因為程式沒有購買數位簽章，並非病毒。
+
+          防毒軟體誤報：
+            PyInstaller 打包的程式偶爾會被防毒軟體誤判。
+            如果被攔截，請將此資料夾加入防毒軟體的排除清單：
+            - Windows Defender：設定 > 病毒與威脅防護 > 管理設定
+              > 排除項目 > 新增排除項目 > 資料夾 > 選擇此資料夾
+            - 其他防毒軟體：請洽 IT 部門協助加入白名單
+
+          如有疑問請聯繫提供此工具的同事。
           "@ | Out-File -FilePath "dist\${{ matrix.artifact }}\使用說明.txt" -Encoding utf8
 
           Compress-Archive -Path "dist\${{ matrix.artifact }}\*" -DestinationPath "dist\$zipName"
