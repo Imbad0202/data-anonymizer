@@ -3,8 +3,7 @@ from typing import Dict, List, Optional, Tuple
 
 from models import Span, resolve_spans
 from mapping_manager import MappingManager
-from detectors.custom import CustomDetector
-from detectors.regex_detector import RegexDetector
+from detectors import build_detectors, collect_spans
 
 
 def get_parser(file_path: str):
@@ -33,19 +32,7 @@ class Anonymizer:
 
         self.mapping = MappingManager(session_id=session_id, reversible=reversible)
 
-        custom_terms: Dict[str, List[str]] = config.get("custom_terms", {})
-        substring_match: bool = config.get("substring_match", True)
-        self.custom_detector = CustomDetector(
-            custom_terms=custom_terms,
-            substring_match=substring_match,
-        )
-        self.regex_detector = RegexDetector()
-
-        if use_ner:
-            from detectors.ner import NERDetector
-            self.ner_detector = NERDetector()
-        else:
-            self.ner_detector = None
+        self.custom_detector, self.regex_detector, self.ner_detector = build_detectors(config, use_ner)
 
     # ------------------------------------------------------------------
     # Core pipeline helpers
@@ -53,12 +40,7 @@ class Anonymizer:
 
     def _collect_spans(self, text: str) -> List[Span]:
         """Run all enabled detectors on text and return resolved spans."""
-        all_spans: List[Span] = []
-        all_spans.extend(self.custom_detector.detect(text))
-        all_spans.extend(self.regex_detector.detect(text))
-        if self.ner_detector is not None:
-            all_spans.extend(self.ner_detector.detect(text))
-        return resolve_spans(all_spans)
+        return collect_spans(text, self.custom_detector, self.regex_detector, self.ner_detector)
 
     def _apply_spans(self, text: str, spans: List[Span]) -> str:
         """Replace spans right-to-left so that earlier offsets are preserved."""
@@ -99,7 +81,7 @@ class Anonymizer:
         spans = self._collect_spans(text)
 
         if not spans:
-            return text, "未發現個資，文件未修改。"
+            return text, self._build_summary([])
 
         anonymized = self._apply_spans(text, spans)
         summary = self._build_summary(spans)
@@ -131,8 +113,7 @@ class Anonymizer:
         spans = self._collect_spans(text)
 
         if not spans:
-            summary = f"未發現個資，文件未修改。"
-            return None, summary
+            return None, self._build_summary([], file_path=file_path)
 
         anonymized = self._apply_spans(text, spans)
         summary = self._build_summary(spans, file_path=file_path)

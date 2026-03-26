@@ -39,8 +39,8 @@ try:
 except ImportError:
     pytesseract = None  # type: ignore
 
-from detectors.custom import CustomDetector
-from detectors.regex_detector import RegexDetector
+from detectors import build_detectors, collect_spans
+from PIL import ImageDraw
 
 logger = logging.getLogger(__name__)
 
@@ -143,23 +143,17 @@ class ImageAnonymizer:
     def __init__(self, config: dict, use_ner: bool = False):
         self.config = config
 
-        # Text detectors (reuse existing pipeline)
-        custom_terms: Dict[str, List[str]] = config.get("custom_terms", {})
-        substring_match: bool = config.get("substring_match", True)
-        self.custom_detector = CustomDetector(
-            custom_terms=custom_terms,
-            substring_match=substring_match,
-        )
-        self.regex_detector = RegexDetector()
+        # Text detectors (shared with Anonymizer)
+        self.custom_detector, self.regex_detector, self.ner_detector = build_detectors(config, use_ner)
 
-        if use_ner:
-            from detectors.ner import NERDetector
-            self.ner_detector = NERDetector()
-        else:
-            self.ner_detector = None
-
-        # Logo templates
+        # Logo templates — cache loaded images to avoid re-reading per image
         self._logo_templates: List[str] = config.get("logo_templates", [])
+        self._template_cache: Dict[str, np.ndarray] = {}
+        for path in self._logo_templates:
+            if os.path.isfile(path):
+                tmpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+                if tmpl is not None:
+                    self._template_cache[path] = tmpl
 
         # Face detection model (lazy load)
         self._face_net = self._load_face_model()
@@ -231,14 +225,8 @@ class ImageAnonymizer:
         if not full_text:
             return []
 
-        # Run detectors on the concatenated text
-        from models import Span, resolve_spans
-        all_spans: List[Span] = []
-        all_spans.extend(self.custom_detector.detect(full_text))
-        all_spans.extend(self.regex_detector.detect(full_text))
-        if self.ner_detector is not None:
-            all_spans.extend(self.ner_detector.detect(full_text))
-        spans = resolve_spans(all_spans)
+        # Run detectors on the concatenated text (shared pipeline)
+        spans = collect_spans(full_text, self.custom_detector, self.regex_detector, self.ner_detector)
 
         if not spans:
             return []
@@ -334,16 +322,12 @@ class ImageAnonymizer:
         regions: List[ImageRegion] = []
 
         for template_path in self._logo_templates:
-            if not os.path.isfile(template_path):
-                logger.warning("Logo template not found: %s — skipping.", template_path)
+            template = self._template_cache.get(template_path)
+            if template is None:
+                logger.warning("Logo template not loaded: %s — skipping.", template_path)
                 continue
 
             try:
-                template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
-                if template is None:
-                    logger.warning("Failed to read logo template: %s", template_path)
-                    continue
-
                 th, tw = template.shape[:2]
                 best_val = -1.0
                 best_loc = (0, 0)
@@ -368,6 +352,10 @@ class ImageAnonymizer:
                         best_val = max_val
                         best_loc = max_loc
                         best_scale = scale
+
+                    # Early exit: good enough match found
+                    if best_val >= _LOGO_THRESHOLD:
+                        break
 
                 if best_val >= _LOGO_THRESHOLD:
                     match_w = int(tw * best_scale)
@@ -397,17 +385,16 @@ class ImageAnonymizer:
         """
         result = img.copy()
 
+        if not reversible:
+            draw = ImageDraw.Draw(result)
+
         for r in regions:
             if reversible:
-                # Crop, blur, paste back
                 box = (r.x, r.y, r.x + r.w, r.y + r.h)
                 cropped = result.crop(box)
                 blurred = cropped.filter(ImageFilter.GaussianBlur(radius=25))
                 result.paste(blurred, box)
             else:
-                # Solid black fill
-                from PIL import ImageDraw
-                draw = ImageDraw.Draw(result)
                 draw.rectangle([r.x, r.y, r.x + r.w, r.y + r.h], fill=(0, 0, 0))
 
         return result
