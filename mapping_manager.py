@@ -10,10 +10,11 @@ TOKEN_PATTERN = re.compile(r'__ANON:[A-Z]+_\d+__')
 
 
 class MappingManager:
-    def __init__(self, session_id: str, mappings_dir: str = "/tmp/anonymizer", persistent_path: Optional[str] = None):
+    def __init__(self, session_id: str, mappings_dir: str = "/tmp/anonymizer", persistent_path: Optional[str] = None, reversible: bool = True):
         self.session_id = session_id
         self.mappings_dir = mappings_dir
         self.persistent_path = persistent_path
+        self.reversible = reversible
         os.makedirs(mappings_dir, exist_ok=True)
 
         # forward: (value, category) -> token string
@@ -37,6 +38,10 @@ class MappingManager:
         return f"{category}::{value}"
 
     def get_or_create_token(self, value: str, category: str) -> str:
+        # Irreversible mode: return generic label, don't store mapping
+        if not self.reversible:
+            return f"[{category}]"
+
         key = self._forward_key(value, category)
         if key in self._forward:
             return self._forward[key]
@@ -78,6 +83,10 @@ class MappingManager:
         os.replace(tmp_path, path)
 
     def save(self, persist: bool = False) -> None:
+        # Irreversible mode: no mapping to save
+        if not self.reversible:
+            return
+
         data = {
             "session_id": self.session_id,
             "forward": self._forward,

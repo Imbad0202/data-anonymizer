@@ -23,14 +23,15 @@ def get_parser(file_path: str):
 
 
 class Anonymizer:
-    def __init__(self, config: dict, session_id: str, use_ner: bool = True):
+    def __init__(self, config: dict, session_id: str, use_ner: bool = True, reversible: bool = True):
         self.config = config
         self.session_id = session_id
         self.use_ner = use_ner
+        self.reversible = reversible
         self.persist_mapping: bool = config.get("persist_mapping", True)
         self.max_file_pages: int = config.get("max_file_pages", 50)
 
-        self.mapping = MappingManager(session_id=session_id)
+        self.mapping = MappingManager(session_id=session_id, reversible=reversible)
 
         custom_terms: Dict[str, List[str]] = config.get("custom_terms", {})
         substring_match: bool = config.get("substring_match", True)
