@@ -52,20 +52,25 @@ jobs:
             pip install transformers ckip-transformers
           }
 
-      - name: Download Tesseract portable
+      - name: Install Tesseract via Chocolatey
         shell: pwsh
         run: |
-          $tesseractUrl = "https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe"
-          Invoke-WebRequest -Uri $tesseractUrl -OutFile tesseract-setup.exe
+          # Chocolatey is pre-installed on windows-latest
+          choco install tesseract -y --no-progress
 
-          Start-Process -Wait -FilePath tesseract-setup.exe -ArgumentList "/S", "/D=C:\tesseract"
+          # Copy installed Tesseract to bundle directory
+          $tesseractDir = "C:\Program Files\Tesseract-OCR"
+          New-Item -ItemType Directory -Path "_internal\tesseract\tessdata" -Force
+          Copy-Item "$tesseractDir\tesseract.exe" "_internal\tesseract\"
+          Copy-Item "$tesseractDir\*.dll" "_internal\tesseract\"
+          Copy-Item "$tesseractDir\tessdata\eng.traineddata" "_internal\tesseract\tessdata\"
 
-          New-Item -ItemType Directory -Path "_internal\tesseract" -Force
-          Copy-Item "C:\tesseract\*" "_internal\tesseract\" -Recurse
-
-          $tessdata = "_internal\tesseract\tessdata"
+          # Download Traditional Chinese language data
           $chiTraUrl = "https://github.com/tesseract-ocr/tessdata_best/raw/main/chi_tra.traineddata"
-          Invoke-WebRequest -Uri $chiTraUrl -OutFile "$tessdata\chi_tra.traineddata"
+          Invoke-WebRequest -Uri $chiTraUrl -OutFile "_internal\tesseract\tessdata\chi_tra.traineddata"
+
+          Write-Host "Tesseract bundled:"
+          Get-ChildItem "_internal\tesseract" -Recurse | Select-Object FullName, Length
 
       - name: Download OpenCV DNN face model
         shell: pwsh
