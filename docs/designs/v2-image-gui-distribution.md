@@ -209,7 +209,9 @@ Selected approach: **OCR + CV Hybrid** for images, **PyInstaller --onedir + Inno
 12. GitHub Actions workflow (Windows runner, two build targets: Full + Lite)
 
 ### Key Technical Decisions
-- **OCR engine:** Tesseract (via Presidio Image Redactor) — mature, cross-platform, free; on Windows, bundled as portable binary inside --onedir
+- **OCR engine:** pytesseract (direct Tesseract wrapper) + existing custom/regex/NER detectors — NOT Presidio Image Redactor (Presidio's PII detectors are English-focused and don't recognize Taiwanese school names/IDs; pytesseract uses the same Tesseract OCR engine but feeds output to our Taiwan-optimized detectors); on Windows, bundled as portable binary inside --onedir
+- **Irreversible mode:** MappingManager handles label generation — `get_or_create_token()` returns `[CATEGORY]` label instead of token when `reversible=False`, and skips storing in mapping dict. `_apply_spans` unchanged.
+- **Batch processing:** Single-threaded sequential with progress bar (sufficient for 50 files in 2-7 min; multi-process deferred to avoid PyInstaller `freeze_support()` complexity)
 - **Face detection:** OpenCV DNN with `res10_300x300_ssd_iter_140000.caffemodel` (~10MB) — CPU-only, no GPU needed; chosen over YOLO for smaller model size and simpler integration
 - **Logo detection:** OpenCV `matchTemplate` with multi-scale search; no rotation handling in v2 (known limitation, acceptable)
 - **GUI framework:** tkinter (built into Python, zero extra dependency for PyInstaller)
