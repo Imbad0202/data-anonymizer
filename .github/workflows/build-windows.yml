@@ -103,10 +103,14 @@ jobs:
       - name: Build with PyInstaller
         shell: pwsh
         run: |
+          Write-Host "Working directory: $(Get-Location)"
+          Write-Host "Files in current dir:"
+          Get-ChildItem -Name | Select-Object -First 20
+
           if ("${{ matrix.lite }}" -eq "true") {
-            pyinstaller anonymizer.spec -- --lite
+            pyinstaller --noconfirm anonymizer.spec -- --lite
           } else {
-            pyinstaller anonymizer.spec
+            pyinstaller --noconfirm anonymizer.spec
           }
 
       - name: Package as portable zip

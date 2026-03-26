@@ -24,8 +24,13 @@ if lite_mode:
 
 block_cipher = None
 
-# Base directory
-BASE_DIR = os.path.dirname(os.path.abspath(SPECPATH))
+# Base directory — use SPECPATH (set by PyInstaller to the spec file's directory)
+# Fall back to current working directory if SPECPATH is not in expected location
+_specdir = os.path.dirname(os.path.abspath(SPECPATH))
+if os.path.isfile(os.path.join(_specdir, 'gui', 'app.py')):
+    BASE_DIR = _specdir
+else:
+    BASE_DIR = os.getcwd()
 
 # Data files to bundle
 datas = [
