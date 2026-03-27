@@ -4,6 +4,7 @@ PyInstaller runtime hook — sets up environment for bundled dependencies.
 Configures:
 - TESSDATA_PREFIX for bundled Tesseract OCR
 - OpenCV DNN model paths
+- HuggingFace offline mode + local ckip NER model path
 """
 
 import os
@@ -30,3 +31,10 @@ if os.path.isfile(tesseract_exe):
         pytesseract.pytesseract.tesseract_cmd = tesseract_exe
     except ImportError:
         pass
+
+# ckip NER model — use bundled model, block network downloads in frozen builds
+ckip_model_dir = os.path.join(BASE_DIR, 'ckip_models', 'bert-base-chinese-ner')
+if os.path.isdir(ckip_model_dir):
+    os.environ['CKIP_MODEL_DIR'] = ckip_model_dir
+    os.environ['HF_HUB_OFFLINE'] = '1'
+    os.environ['TRANSFORMERS_OFFLINE'] = '1'

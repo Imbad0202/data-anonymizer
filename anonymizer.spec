@@ -45,6 +45,11 @@ tesseract_dir = os.path.join(BASE_DIR, '_internal', 'tesseract')
 if os.path.isdir(tesseract_dir):
     datas.append((tesseract_dir, 'tesseract'))
 
+# ckip NER model (Full build only — pre-downloaded by CI)
+ckip_model_dir = os.path.join(BASE_DIR, 'ckip_models')
+if not lite_mode and os.path.isdir(ckip_model_dir):
+    datas.append((ckip_model_dir, 'ckip_models'))
+
 # Logo templates directory (if exists)
 logo_dir = os.path.join(BASE_DIR, 'logo_templates')
 if os.path.isdir(logo_dir):

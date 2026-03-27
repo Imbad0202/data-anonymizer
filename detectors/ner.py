@@ -1,3 +1,4 @@
+import os
 from typing import List
 
 from models import Span
@@ -19,7 +20,11 @@ def _get_chunker():
     global _ner_chunker
     if _ner_chunker is None:
         from ckip_transformers.nlp import CkipNerChunker
-        _ner_chunker = CkipNerChunker(model="bert-base")
+        local_model = os.environ.get('CKIP_MODEL_DIR')
+        if local_model and os.path.isdir(local_model):
+            _ner_chunker = CkipNerChunker(model=local_model)
+        else:
+            _ner_chunker = CkipNerChunker(model="bert-base")
     return _ner_chunker
 
 

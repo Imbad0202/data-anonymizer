@@ -5,3 +5,5 @@ mappings/persistent.json
 __pycache__/
 *.pyc
 .venv/
+ckip_models/
+ckip_model_cache/

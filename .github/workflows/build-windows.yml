@@ -83,6 +83,24 @@ jobs:
           Invoke-WebRequest -Uri $prototxt -OutFile "models\deploy.prototxt"
           Invoke-WebRequest -Uri $caffemodel -OutFile "models\res10_300x300_ssd_iter_140000.caffemodel"
 
+      - name: Pre-download ckip NER model (Full only)
+        if: matrix.lite == false
+        shell: pwsh
+        run: |
+          python -c "
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              'ckiplab/bert-base-chinese-ner',
+              local_dir='ckip_models/bert-base-chinese-ner',
+              allow_patterns=['*.json', '*.bin', '*.txt', '*.safetensors', 'tokenizer*'],
+          )
+          "
+          if (!(Test-Path "ckip_models\bert-base-chinese-ner")) {
+            throw "NER model download failed — directory not found"
+          }
+          Write-Host "Bundled NER model files:"
+          Get-ChildItem "ckip_models" -Recurse | Select-Object FullName, Length
+
       - name: Create default config
         shell: pwsh
         run: |
