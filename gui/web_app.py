@@ -9,10 +9,13 @@ import io
 import json
 import logging
 import os
+import socket
 import sys
 import tempfile
+import threading
 import time
 import uuid
+import webbrowser
 import zipfile
 
 from flask import Flask, Response, jsonify, request, send_file, stream_with_context
@@ -314,3 +317,63 @@ def create_app(upload_dir: str = None) -> Flask:
                          mimetype="application/zip")
 
     return app
+
+
+def find_free_port() -> int:
+    """Find a random available port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
+
+
+def wait_for_server(port: int, timeout: float = 10.0):
+    """Block until the Flask server is responding."""
+    import urllib.request
+    import urllib.error
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(f"http://localhost:{port}/api/health", timeout=1)
+            return
+        except (urllib.error.URLError, ConnectionRefusedError):
+            time.sleep(0.2)
+    raise RuntimeError(f"Server did not start within {timeout}s")
+
+
+def monitor_and_shutdown(app: Flask, timeout_seconds: int = 120):
+    """Monitor the last request time. Exit if idle for timeout_seconds."""
+    while True:
+        time.sleep(10)
+        elapsed = time.time() - app.config["LAST_REQUEST_TIME"]
+        if elapsed > timeout_seconds:
+            logger.info("No activity for %ds, shutting down.", timeout_seconds)
+            upload_dir = app.config.get("UPLOAD_DIR")
+            if upload_dir and os.path.isdir(upload_dir):
+                import shutil
+                shutil.rmtree(upload_dir, ignore_errors=True)
+            os._exit(0)
+
+
+def main():
+    """Entry point: start Flask server, open browser, monitor for shutdown."""
+    logging.basicConfig(level=logging.INFO)
+
+    port = find_free_port()
+    app = create_app()
+
+    server_thread = threading.Thread(
+        target=lambda: app.run(host="127.0.0.1", port=port, threaded=True, use_reloader=False),
+        daemon=True,
+    )
+    server_thread.start()
+
+    wait_for_server(port)
+    logger.info("Server started on http://localhost:%d", port)
+
+    webbrowser.open(f"http://localhost:{port}")
+
+    monitor_and_shutdown(app)
+
+
+if __name__ == "__main__":
+    main()
