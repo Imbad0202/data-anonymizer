@@ -171,3 +171,38 @@ class TestDownload:
                            content_type="application/json")
         # Should return zip or 204 (no content if nothing was written)
         assert resp.status_code in (200, 204)
+
+
+class TestFullFlow:
+    """Integration test: upload → preview → process → health check."""
+
+    def test_full_flow(self, client, tmp_path):
+        # 1. Upload
+        test_file = tmp_path / "student_list.txt"
+        test_file.write_text("學生陳美玲，電話0912345678，Email: mei@school.edu.tw",
+                             encoding="utf-8")
+        with open(test_file, "rb") as f:
+            resp = client.post("/api/upload", data={"files": (f, "student_list.txt")},
+                               content_type="multipart/form-data")
+        assert resp.status_code == 200
+        file_id = json.loads(resp.data)["files"][0]["id"]
+
+        # 2. Preview
+        resp = client.post("/api/preview",
+                           data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 200
+        preview = json.loads(resp.data)
+        assert preview["summary"].get("PHONE", 0) > 0 or preview["summary"].get("EMAIL", 0) > 0
+
+        # 3. Process
+        resp = client.post("/api/process",
+                           data=json.dumps({"file_ids": [file_id], "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 200
+        sse_text = resp.get_data(as_text=True)
+        assert '"type": "done"' in sse_text or '"type":"done"' in sse_text
+
+        # 4. Health check still works
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
