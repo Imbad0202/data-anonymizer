@@ -368,6 +368,36 @@ function renderAnonymized(text) {
     badgeEl.textContent = tokenCount > 0 ? `${tokenCount} 筆` : "";
 }
 
+// ── Shared SSE stream parser ──────────────────────────────────────────────
+async function readSSEStream(resp, onProgress, onDone) {
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data: ")) {
+                try {
+                    const event = JSON.parse(trimmed.slice(6));
+                    if (event.type === "progress") {
+                        onProgress(event);
+                    } else if (event.type === "done") {
+                        onDone(event);
+                    }
+                } catch (_) {}
+            }
+        }
+    }
+}
+
 // ── Start processing (SSE via fetch) ──────────────────────────────────────
 async function startProcessing() {
     if (state.processing || state.files.length === 0) return;
@@ -401,37 +431,11 @@ async function startProcessing() {
             return;
         }
 
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-
-            // Parse SSE lines
-            const lines = buffer.split("\n");
-            buffer = lines.pop(); // Keep incomplete last line
-
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (trimmed.startsWith("data: ")) {
-                    const jsonStr = trimmed.slice(6);
-                    try {
-                        const event = JSON.parse(jsonStr);
-                        if (event.type === "progress") {
-                            updateProgress(event.current, event.total, event.file);
-                        } else if (event.type === "done") {
-                            onProcessDone(event.results);
-                        }
-                    } catch (_) {
-                        // Ignore JSON parse errors
-                    }
-                }
-            }
-        }
+        await readSSEStream(
+            resp,
+            (event) => updateProgress(event.current, event.total, event.file),
+            (event) => onProcessDone(event.results),
+        );
     } catch (err) {
         showAlert("error", `處理失敗：${err.message}`);
         onProcessError();
@@ -673,41 +677,19 @@ function initToolbar() {
                 return;
             }
 
-            const reader = resp.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop();
-
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (trimmed.startsWith("data: ")) {
-                        const jsonStr = trimmed.slice(6);
-                        try {
-                            const event = JSON.parse(jsonStr);
-                            if (event.type === "progress") {
-                                updateProgress(event.current, event.total, event.file);
-                            } else if (event.type === "done") {
-                                const successCount = event.results
-                                    ? event.results.filter((r) => !String(r.summary).startsWith("錯誤")).length
-                                    : 0;
-                                const totalCount = event.results ? event.results.length : 0;
-                                showAlert("success", `批次處理完成！${successCount}/${totalCount} 個檔案已儲存至 ${event.output_dir}`);
-                                setStatus("完成", "idle");
-                                document.getElementById("progress-fill").style.width = "100%";
-                            }
-                        } catch (_) {
-                            // Ignore JSON parse errors
-                        }
-                    }
-                }
-            }
+            await readSSEStream(
+                resp,
+                (event) => updateProgress(event.current, event.total, event.file),
+                (event) => {
+                    const successCount = event.results
+                        ? event.results.filter((r) => !String(r.summary).startsWith("錯誤")).length
+                        : 0;
+                    const totalCount = event.results ? event.results.length : 0;
+                    showAlert("success", `批次處理完成！${successCount}/${totalCount} 個檔案已儲存至 ${event.output_dir}`);
+                    setStatus("完成", "idle");
+                    document.getElementById("progress-fill").style.width = "100%";
+                },
+            );
         } catch (err) {
             showAlert("error", `批次處理失敗：${err.message}`);
             setStatus("就緒", "idle");

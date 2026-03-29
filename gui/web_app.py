@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import os
+import shutil
 import socket
 import sys
 import tempfile
@@ -52,7 +53,7 @@ def create_app(upload_dir: str = None) -> Flask:
     from anonymizer import Anonymizer, get_parser
     from config_manager import export_config, import_config, load_config, save_config
 
-    APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    APP_DIR = _PROJECT_ROOT
     CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 
     @app.before_request
@@ -206,11 +207,11 @@ def create_app(upload_dir: str = None) -> Flask:
 
         reversible = mode == "reversible"
         config = load_config(CONFIG_PATH)
-        file_types = config.get("file_types") or [".txt", ".md", ".docx", ".xlsx", ".pptx", ".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff"]
+        from config_manager import DEFAULT_FILE_TYPES
+        file_types = config.get("file_types") or DEFAULT_FILE_TYPES
 
         def generate():
             from batch import _collect_files
-            import shutil
             files = _collect_files(folder, file_types)
             text_anon = Anonymizer(config=config, session_id="web_batch",
                                    use_ner=use_ner, reversible=reversible)
@@ -248,8 +249,6 @@ def create_app(upload_dir: str = None) -> Flask:
             mimetype="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-
-    from config_manager import export_config, import_config, save_config
 
     LOGO_DIR = os.path.join(APP_DIR, "logo_templates")
 
@@ -289,7 +288,8 @@ def create_app(upload_dir: str = None) -> Flask:
         if not file_info:
             return jsonify({"error": "找不到檔案"}), 404
         output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
-        anon_name = os.path.splitext(file_info["name"])[0] + "_anonymized" + os.path.splitext(file_info["name"])[1]
+        base, ext = os.path.splitext(file_info["name"])
+        anon_name = f"{base}_anonymized{ext}"
         for root, dirs, files in os.walk(output_dir):
             for fname in files:
                 if file_id in fname or file_info["name"] in fname:
@@ -354,7 +354,6 @@ def monitor_and_shutdown(app: Flask, timeout_seconds: int = 120):
             logger.info("No activity for %ds, shutting down.", timeout_seconds)
             upload_dir = app.config.get("UPLOAD_DIR")
             if upload_dir and os.path.isdir(upload_dir):
-                import shutil
                 shutil.rmtree(upload_dir, ignore_errors=True)
             os._exit(0)
 

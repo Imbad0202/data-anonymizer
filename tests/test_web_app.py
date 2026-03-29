@@ -69,18 +69,19 @@ class TestUpload:
         assert resp.status_code == 400
 
 
-class TestPreview:
-    def _upload_file(self, client, tmp_path, filename, content):
-        """Helper: upload a file and return its file_id."""
-        fpath = tmp_path / filename
-        fpath.write_text(content, encoding="utf-8")
-        with open(fpath, "rb") as f:
-            resp = client.post("/api/upload", data={"files": (f, filename)},
-                               content_type="multipart/form-data")
-        return json.loads(resp.data)["files"][0]["id"]
+def _upload_file(client, tmp_path, filename, content):
+    """Helper: upload a file and return its file_id."""
+    fpath = tmp_path / filename
+    fpath.write_text(content, encoding="utf-8")
+    with open(fpath, "rb") as f:
+        resp = client.post("/api/upload", data={"files": (f, filename)},
+                           content_type="multipart/form-data")
+    return json.loads(resp.data)["files"][0]["id"]
 
+
+class TestPreview:
     def test_preview_returns_original_and_anonymized(self, client, tmp_path):
-        file_id = self._upload_file(client, tmp_path, "test.txt",
+        file_id = _upload_file(client, tmp_path, "test.txt",
                                      "張三的電話 0912345678")
         resp = client.post("/api/preview",
                            data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
@@ -102,7 +103,7 @@ class TestPreview:
         assert resp.status_code == 404
 
     def test_preview_no_pii_found(self, client, tmp_path):
-        file_id = self._upload_file(client, tmp_path, "clean.txt",
+        file_id = _upload_file(client, tmp_path, "clean.txt",
                                      "今天天氣很好")
         resp = client.post("/api/preview",
                            data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
@@ -114,16 +115,8 @@ class TestPreview:
 
 
 class TestProcess:
-    def _upload_file(self, client, tmp_path, filename, content):
-        fpath = tmp_path / filename
-        fpath.write_text(content, encoding="utf-8")
-        with open(fpath, "rb") as f:
-            resp = client.post("/api/upload", data={"files": (f, filename)},
-                               content_type="multipart/form-data")
-        return json.loads(resp.data)["files"][0]["id"]
-
     def test_process_returns_sse_stream(self, client, tmp_path):
-        fid = self._upload_file(client, tmp_path, "test.txt", "張三 0912345678")
+        fid = _upload_file(client, tmp_path, "test.txt", "張三 0912345678")
         resp = client.post("/api/process",
                            data=json.dumps({"file_ids": [fid], "mode": "reversible", "use_ner": False}),
                            content_type="application/json")
@@ -152,13 +145,7 @@ class TestConfig:
 class TestDownload:
     def _upload_and_process(self, client, tmp_path, filename, content):
         """Upload a file, process it, return file_id."""
-        fpath = tmp_path / filename
-        fpath.write_text(content, encoding="utf-8")
-        with open(fpath, "rb") as f:
-            resp = client.post("/api/upload", data={"files": (f, filename)},
-                               content_type="multipart/form-data")
-        fid = json.loads(resp.data)["files"][0]["id"]
-        # Process it
+        fid = _upload_file(client, tmp_path, filename, content)
         client.post("/api/process",
                     data=json.dumps({"file_ids": [fid], "mode": "reversible", "use_ner": False}),
                     content_type="application/json")
