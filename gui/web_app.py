@@ -43,6 +43,12 @@ def create_app(upload_dir: str = None) -> Flask:
     # Track last request time for auto-shutdown
     app.config["LAST_REQUEST_TIME"] = time.time()
 
+    from anonymizer import Anonymizer, get_parser
+    from config_manager import load_config
+
+    APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    CONFIG_PATH = os.path.join(APP_DIR, "config.json")
+
     @app.before_request
     def update_last_request_time():
         app.config["LAST_REQUEST_TIME"] = time.time()
@@ -75,5 +81,48 @@ def create_app(upload_dir: str = None) -> Flask:
             results.append({"id": file_id, "name": f.filename, "size": size})
 
         return jsonify({"files": results})
+
+    # --- Preview endpoint ---
+    @app.route("/api/preview", methods=["POST"])
+    def preview():
+        data = request.get_json()
+        file_id = data.get("file_id")
+        mode = data.get("mode", "reversible")
+        use_ner = data.get("use_ner", False)
+
+        file_info = app.config["FILE_REGISTRY"].get(file_id)
+        if not file_info:
+            return jsonify({"error": "找不到檔案"}), 404
+
+        file_path = file_info["path"]
+        config = load_config(CONFIG_PATH)
+        reversible = mode == "reversible"
+
+        anon = Anonymizer(config=config, session_id=f"preview_{file_id}",
+                          use_ner=use_ner, reversible=reversible)
+
+        parser = get_parser(file_path)
+        if parser is None:
+            return jsonify({"error": f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"}), 400
+
+        text = parser.parse(file_path)
+        spans = anon._collect_spans(text)
+        anonymized = anon._apply_spans(text, spans) if spans else text
+
+        spans_json = [
+            {"start": s.start, "end": s.end, "text": s.text, "category": s.category}
+            for s in spans
+        ]
+
+        summary = {}
+        for s in spans:
+            summary[s.category] = summary.get(s.category, 0) + 1
+
+        return jsonify({
+            "original": text,
+            "anonymized": anonymized,
+            "spans": spans_json,
+            "summary": summary,
+        })
 
     return app

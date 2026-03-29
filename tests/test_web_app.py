@@ -67,3 +67,47 @@ class TestUpload:
         resp = client.post("/api/upload", data={},
                            content_type="multipart/form-data")
         assert resp.status_code == 400
+
+
+class TestPreview:
+    def _upload_file(self, client, tmp_path, filename, content):
+        """Helper: upload a file and return its file_id."""
+        fpath = tmp_path / filename
+        fpath.write_text(content, encoding="utf-8")
+        with open(fpath, "rb") as f:
+            resp = client.post("/api/upload", data={"files": (f, filename)},
+                               content_type="multipart/form-data")
+        return json.loads(resp.data)["files"][0]["id"]
+
+    def test_preview_returns_original_and_anonymized(self, client, tmp_path):
+        file_id = self._upload_file(client, tmp_path, "test.txt",
+                                     "張三的電話 0912345678")
+        resp = client.post("/api/preview",
+                           data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert "original" in data
+        assert "anonymized" in data
+        assert "spans" in data
+        assert "summary" in data
+        assert "0912345678" in data["original"]
+        # Phone should be detected
+        assert data["summary"].get("PHONE", 0) > 0
+
+    def test_preview_invalid_file_id_returns_404(self, client):
+        resp = client.post("/api/preview",
+                           data=json.dumps({"file_id": "nonexistent", "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 404
+
+    def test_preview_no_pii_found(self, client, tmp_path):
+        file_id = self._upload_file(client, tmp_path, "clean.txt",
+                                     "今天天氣很好")
+        resp = client.post("/api/preview",
+                           data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["original"] == data["anonymized"]
+        assert len(data["spans"]) == 0
