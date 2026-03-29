@@ -380,6 +380,8 @@ async function startProcessing() {
     const progressFill = document.getElementById("progress-fill");
     progressFill.style.width = "0%";
     progressBar.setAttribute("aria-valuenow", "0");
+    document.getElementById("sidebar-progress").style.display = "";
+    document.getElementById("sidebar-download").style.display = "none";
 
     try {
         const resp = await fetch("/api/process", {
@@ -446,6 +448,8 @@ function updateProgress(current, total, filename) {
     progressFill.style.width = `${percent}%`;
     progressBar.setAttribute("aria-valuenow", String(percent));
     statusText.textContent = `處理中：${filename} ${current}/${total}`;
+    document.getElementById("progress-label").textContent = `處理中：${filename}`;
+    document.getElementById("progress-percent").textContent = `${current}/${total}`;
 }
 
 // ── On process complete ────────────────────────────────────────────────────
@@ -459,7 +463,10 @@ function onProcessDone(results) {
 
     setStatus("完成", "idle");
     document.getElementById("progress-fill").style.width = "100%";
+    document.getElementById("progress-label").textContent = "處理完成";
+    document.getElementById("progress-percent").textContent = `${successCount}/${totalCount}`;
     document.getElementById("btn-process").disabled = false;
+    document.getElementById("sidebar-download").style.display = "";
 
     // Re-preview the selected file to show updated results
     if (state.selectedFileId) {
@@ -472,6 +479,37 @@ function onProcessError() {
     state.processing = false;
     setStatus("就緒", "idle");
     document.getElementById("btn-process").disabled = false;
+    document.getElementById("sidebar-progress").style.display = "none";
+}
+
+// ── Download all processed files ──────────────────────────────────────────
+async function downloadAll() {
+    try {
+        const resp = await fetch("/api/download-all", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ file_ids: state.files.map((f) => f.id) }),
+        });
+        if (resp.status === 204) {
+            showAlert("warning", "沒有已處理的檔案可供下載");
+            return;
+        }
+        if (!resp.ok) {
+            showAlert("error", "下載失敗");
+            return;
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "anonymized_output.zip";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        showAlert("error", `下載失敗：${e.message}`);
+    }
 }
 
 // ── Show alert ─────────────────────────────────────────────────────────────
@@ -681,6 +719,11 @@ function initToolbar() {
     // Process button
     btnProcess.addEventListener("click", () => {
         startProcessing();
+    });
+
+    // Download all button
+    document.getElementById("btn-download-all").addEventListener("click", () => {
+        downloadAll();
     });
 }
 

@@ -87,6 +87,22 @@
       <div id="sidebar-empty" class="sidebar-empty">
         <span>尚無偵測結果</span>
       </div>
+      <!-- 進度條（處理中顯示） -->
+      <div id="sidebar-progress" class="sidebar-progress" style="display:none">
+        <div class="sidebar-progress-label">
+          <span id="progress-label">處理中...</span>
+          <span id="progress-percent"></span>
+        </div>
+        <div id="progress-bar" class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+      </div>
+      <!-- 下載按鈕（處理完成後顯示） -->
+      <div id="sidebar-download" class="sidebar-download" style="display:none">
+        <button id="btn-download-all" class="btn btn-primary btn-block" type="button">
+          ⬇ 下載全部
+        </button>
+      </div>
     </aside>
 
     <!-- 中欄：原始內容 -->
@@ -119,11 +135,7 @@
       <span class="status-dot" id="status-dot"></span>
       <span id="status-text">就緒</span>
     </div>
-    <div class="statusbar-center">
-      <div id="progress-bar" class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-        <div id="progress-fill" class="progress-fill"></div>
-      </div>
-    </div>
+    <div class="statusbar-center"></div>
     <div class="statusbar-right">
       <span id="version" class="version-badge"></span>
     </div>
