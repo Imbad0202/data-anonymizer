@@ -5,6 +5,7 @@ Serves the single-page web interface and API endpoints that call
 the existing Anonymizer/ImageAnonymizer engines.
 """
 
+import io
 import json
 import logging
 import os
@@ -12,8 +13,9 @@ import sys
 import tempfile
 import time
 import uuid
+import zipfile
 
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request, send_file, stream_with_context
 
 # Ensure project root is importable
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,7 +47,7 @@ def create_app(upload_dir: str = None) -> Flask:
     app.config["LAST_REQUEST_TIME"] = time.time()
 
     from anonymizer import Anonymizer, get_parser
-    from config_manager import load_config
+    from config_manager import export_config, import_config, load_config, save_config
 
     APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     CONFIG_PATH = os.path.join(APP_DIR, "config.json")
@@ -238,5 +240,77 @@ def create_app(upload_dir: str = None) -> Flask:
             mimetype="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    from config_manager import export_config, import_config, save_config
+
+    LOGO_DIR = os.path.join(APP_DIR, "logo_templates")
+
+    @app.route("/api/config")
+    def get_config():
+        config = load_config(CONFIG_PATH)
+        return jsonify(config)
+
+    @app.route("/api/config/import", methods=["POST"])
+    def import_config_route():
+        if "file" not in request.files:
+            return jsonify({"error": "未選擇設定檔"}), 400
+        f = request.files["file"]
+        tmp_zip = os.path.join(app.config["UPLOAD_DIR"], "config_import.zip")
+        f.save(tmp_zip)
+        try:
+            config, summary = import_config(tmp_zip, APP_DIR)
+            config["logo_templates"] = [
+                os.path.join(LOGO_DIR, lt) for lt in config["logo_templates"]
+            ]
+            save_config(config, CONFIG_PATH)
+            return jsonify({"summary": summary})
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/config/export")
+    def export_config_route():
+        config = load_config(CONFIG_PATH)
+        tmp_zip = os.path.join(app.config["UPLOAD_DIR"], "config_export.zip")
+        export_config(config, LOGO_DIR, tmp_zip)
+        return send_file(tmp_zip, as_attachment=True,
+                         download_name=".anonymizer-config.zip")
+
+    @app.route("/api/download/<file_id>")
+    def download_file(file_id):
+        file_info = app.config["FILE_REGISTRY"].get(file_id)
+        if not file_info:
+            return jsonify({"error": "找不到檔案"}), 404
+        output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
+        anon_name = os.path.splitext(file_info["name"])[0] + "_anonymized" + os.path.splitext(file_info["name"])[1]
+        for root, dirs, files in os.walk(output_dir):
+            for fname in files:
+                if file_id in fname or file_info["name"] in fname:
+                    return send_file(os.path.join(root, fname), as_attachment=True,
+                                     download_name=anon_name)
+        return jsonify({"error": "尚未處理此檔案"}), 404
+
+    @app.route("/api/download-all", methods=["POST"])
+    def download_all():
+        data = request.get_json()
+        file_ids = data.get("file_ids", [])
+        output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
+
+        if not os.path.isdir(output_dir):
+            return "", 204
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(output_dir):
+                for fname in files:
+                    full = os.path.join(root, fname)
+                    arcname = os.path.relpath(full, output_dir)
+                    zf.write(full, arcname)
+
+        buf.seek(0)
+        if buf.getbuffer().nbytes <= 22:  # Empty zip
+            return "", 204
+
+        return send_file(buf, as_attachment=True, download_name="anonymized_output.zip",
+                         mimetype="application/zip")
 
     return app

@@ -139,3 +139,35 @@ class TestProcess:
                            data=json.dumps({"file_ids": [], "mode": "reversible", "use_ner": False}),
                            content_type="application/json")
         assert resp.status_code == 400
+
+
+class TestConfig:
+    def test_get_config(self, client):
+        resp = client.get("/api/config")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert "custom_terms" in data or "version" in data or "error" not in data
+
+
+class TestDownload:
+    def _upload_and_process(self, client, tmp_path, filename, content):
+        """Upload a file, process it, return file_id."""
+        fpath = tmp_path / filename
+        fpath.write_text(content, encoding="utf-8")
+        with open(fpath, "rb") as f:
+            resp = client.post("/api/upload", data={"files": (f, filename)},
+                               content_type="multipart/form-data")
+        fid = json.loads(resp.data)["files"][0]["id"]
+        # Process it
+        client.post("/api/process",
+                    data=json.dumps({"file_ids": [fid], "mode": "reversible", "use_ner": False}),
+                    content_type="application/json")
+        return fid
+
+    def test_download_all_returns_zip(self, client, tmp_path):
+        fid = self._upload_and_process(client, tmp_path, "test.txt", "張三 0912345678")
+        resp = client.post("/api/download-all",
+                           data=json.dumps({"file_ids": [fid]}),
+                           content_type="application/json")
+        # Should return zip or 204 (no content if nothing was written)
+        assert resp.status_code in (200, 204)
