@@ -47,6 +47,7 @@ jobs:
           pip install pyinstaller
           pip install opencv-python-headless pytesseract Pillow numpy
           pip install pdfplumber python-docx openpyxl python-pptx
+          pip install flask
           if ("${{ matrix.lite }}" -eq "false") {
             pip install torch --index-url https://download.pytorch.org/whl/cpu
             pip install transformers ckip-transformers
@@ -145,7 +146,9 @@ jobs:
           【使用方式】
           1. 將學校設定檔 (.anonymizer-config.zip) 放到此資料夾
           2. 雙擊 ${{ matrix.artifact }}.exe 啟動
-          3. 首次啟動會自動提示匯入設定
+          3. 瀏覽器會自動開啟操作介面
+          4. 首次啟動會自動提示匯入設定
+          5. 關閉瀏覽器分頁後，程式會在 2 分鐘內自動關閉
 
           免安裝，不需要管理者權限。
           刪除此資料夾即可移除。
@@ -207,8 +210,9 @@ jobs:
 
             1. 下載 zip 解壓到任意位置（桌面、隨身碟皆可）
             2. 將學校設定檔 (`.anonymizer-config.zip`) 放進同一資料夾
-            3. 雙擊 `.exe` 啟動
+            3. 雙擊 `.exe` 啟動，瀏覽器會自動開啟操作介面
             4. 首次啟動會自動提示匯入設定
+            5. 關閉瀏覽器分頁後程式會自動關閉
 
             **不需要安裝、不需要管理者權限。**
           files: |
