@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>資料脫敏工具 Data Anonymizer</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- ── 標題列 ─────────────────────────────────── -->
+  <header class="titlebar">
+    <div class="titlebar-inner">
+      <span class="titlebar-icon">🛡</span>
+      <span class="titlebar-title">資料脫敏工具</span>
+      <span class="titlebar-subtitle">Data Anonymizer</span>
+    </div>
+  </header>
+
+  <!-- ── 警示容器（success / warning / error） ─── -->
+  <div id="alert-container"></div>
+
+  <!-- ── 工具列 ─────────────────────────────────── -->
+  <div class="toolbar">
+
+    <!-- 模式切換 -->
+    <div id="mode-toggle" class="mode-toggle" role="group" aria-label="脫敏模式">
+      <button id="mode-reversible" class="mode-btn active" type="button" title="可逆假名化：替換為代號，可用金鑰還原">
+        假名化
+      </button>
+      <button id="mode-irreversible" class="mode-btn" type="button" title="不可逆匿名化：直接刪除或遮蔽，無法還原">
+        匿名化
+      </button>
+    </div>
+
+    <!-- NER 選項 -->
+    <label class="toolbar-label ner-label" for="ner-checkbox" title="使用 AI 命名實體辨識（較慢但更準確）">
+      <input id="ner-checkbox" type="checkbox" />
+      <span>NER 增強</span>
+    </label>
+
+    <!-- 操作按鈕 -->
+    <div class="toolbar-actions">
+      <button id="btn-open-file" class="btn btn-secondary" type="button">
+        📂 開啟檔案
+      </button>
+      <button id="btn-batch" class="btn btn-secondary" type="button">
+        📁 批次處理
+      </button>
+      <button id="btn-process" class="btn btn-primary" type="button" disabled>
+        ▶ 開始脫敏
+      </button>
+    </div>
+
+    <!-- 隱藏的 file input -->
+    <input
+      id="file-input"
+      type="file"
+      multiple
+      accept=".txt,.md,.docx,.xlsx,.pptx,.pdf,.jpg,.jpeg,.png,.bmp,.tiff"
+      style="display:none"
+    />
+
+  </div>
+
+  <!-- ── 拖放區 ─────────────────────────────────── -->
+  <div class="dropzone" id="dropzone" role="region" aria-label="檔案拖放區">
+    <div class="dropzone-icon">📄</div>
+    <div class="dropzone-text">將檔案拖曳至此，或點擊選擇檔案</div>
+    <div class="dropzone-hint">支援 TXT, DOCX, XLSX, PPTX, PDF, JPG, PNG</div>
+  </div>
+
+  <!-- ── 已上傳檔案清單 ───────────────────────── -->
+  <ul id="file-list" class="file-list" aria-label="已上傳的檔案"></ul>
+
+  <!-- ── 主區域：三欄佈局 ───────────────────────── -->
+  <div class="main-area">
+
+    <!-- 左欄：偵測摘要 -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">偵測摘要</h2>
+      </div>
+      <div id="sidebar-summary" class="sidebar-summary">
+        <!-- JS 填入：各類別統計條目 -->
+      </div>
+      <div id="sidebar-empty" class="sidebar-empty">
+        <span>尚無偵測結果</span>
+      </div>
+    </aside>
+
+    <!-- 中欄：原始內容 -->
+    <section id="panel-original" class="preview-panel">
+      <div class="panel-header">
+        <h3 class="panel-label">原始內容</h3>
+        <span class="panel-badge" id="badge-original"></span>
+      </div>
+      <div class="panel-content" id="content-original">
+        <!-- JS 填入高亮後的原始文字 -->
+      </div>
+    </section>
+
+    <!-- 右欄：脫敏結果 -->
+    <section id="panel-anonymized" class="preview-panel">
+      <div class="panel-header">
+        <h3 class="panel-label">脫敏結果</h3>
+        <span class="panel-badge" id="badge-anonymized"></span>
+      </div>
+      <div class="panel-content" id="content-anonymized">
+        <!-- JS 填入脫敏後的文字 -->
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ── 狀態列 ─────────────────────────────────── -->
+  <footer class="statusbar">
+    <div class="statusbar-left">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">就緒</span>
+    </div>
+    <div class="statusbar-center">
+      <div id="progress-bar" class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </div>
+    <div class="statusbar-right">
+      <span id="version" class="version-badge"></span>
+    </div>
+  </footer>
+
+  <script src="/static/js/app.js" defer></script>
+</body>
+</html>
