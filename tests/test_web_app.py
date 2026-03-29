@@ -111,3 +111,31 @@ class TestPreview:
         data = json.loads(resp.data)
         assert data["original"] == data["anonymized"]
         assert len(data["spans"]) == 0
+
+
+class TestProcess:
+    def _upload_file(self, client, tmp_path, filename, content):
+        fpath = tmp_path / filename
+        fpath.write_text(content, encoding="utf-8")
+        with open(fpath, "rb") as f:
+            resp = client.post("/api/upload", data={"files": (f, filename)},
+                               content_type="multipart/form-data")
+        return json.loads(resp.data)["files"][0]["id"]
+
+    def test_process_returns_sse_stream(self, client, tmp_path):
+        fid = self._upload_file(client, tmp_path, "test.txt", "張三 0912345678")
+        resp = client.post("/api/process",
+                           data=json.dumps({"file_ids": [fid], "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 200
+        assert resp.content_type.startswith("text/event-stream")
+        # Collect SSE events
+        text = resp.get_data(as_text=True)
+        assert "progress" in text
+        assert "done" in text
+
+    def test_process_empty_file_ids_returns_400(self, client):
+        resp = client.post("/api/process",
+                           data=json.dumps({"file_ids": [], "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 400

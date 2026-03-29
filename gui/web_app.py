@@ -5,6 +5,7 @@ Serves the single-page web interface and API endpoints that call
 the existing Anonymizer/ImageAnonymizer engines.
 """
 
+import json
 import logging
 import os
 import sys
@@ -12,7 +13,7 @@ import tempfile
 import time
 import uuid
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 # Ensure project root is importable
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -124,5 +125,118 @@ def create_app(upload_dir: str = None) -> Flask:
             "spans": spans_json,
             "summary": summary,
         })
+
+    from image_anonymizer import ImageAnonymizer
+    from parsers.image_parser import ImageParser
+
+    IMAGE_EXTENSIONS = set(ImageParser.EXTENSIONS)
+
+    @app.route("/api/process", methods=["POST"])
+    def process():
+        data = request.get_json()
+        file_ids = data.get("file_ids", [])
+        mode = data.get("mode", "reversible")
+        use_ner = data.get("use_ner", False)
+
+        if not file_ids:
+            return jsonify({"error": "未選擇任何檔案"}), 400
+
+        reversible = mode == "reversible"
+        config = load_config(CONFIG_PATH)
+
+        def generate():
+            text_anon = Anonymizer(config=config, session_id="web_process",
+                                   use_ner=use_ner, reversible=reversible)
+            img_anon = ImageAnonymizer(config=config, use_ner=use_ner)
+            total = len(file_ids)
+            results = []
+
+            for idx, fid in enumerate(file_ids):
+                file_info = app.config["FILE_REGISTRY"].get(fid)
+                if not file_info:
+                    continue
+
+                fpath = file_info["path"]
+                fname = file_info["name"]
+                ext = os.path.splitext(fpath)[1].lower()
+
+                yield f"data: {json.dumps({'type': 'progress', 'current': idx + 1, 'total': total, 'file': fname})}\n\n"
+
+                try:
+                    if ext in IMAGE_EXTENSIONS:
+                        out_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
+                        os.makedirs(out_dir, exist_ok=True)
+                        anon_path, summary = img_anon.anonymize_image(
+                            fpath, output_dir=out_dir, reversible=reversible)
+                        results.append({"file_id": fid, "name": fname, "output": anon_path, "summary": summary})
+                    else:
+                        anon_path, summary = text_anon.anonymize_file(fpath)
+                        results.append({"file_id": fid, "name": fname, "output": anon_path, "summary": summary})
+                except Exception as e:
+                    results.append({"file_id": fid, "name": fname, "output": None, "summary": f"錯誤：{e}"})
+
+            output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
+            yield f"data: {json.dumps({'type': 'done', 'results': results, 'output_dir': output_dir})}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.route("/api/batch", methods=["POST"])
+    def batch():
+        data = request.get_json()
+        folder = data.get("folder")
+        mode = data.get("mode", "reversible")
+        use_ner = data.get("use_ner", False)
+
+        if not folder or not os.path.isdir(folder):
+            return jsonify({"error": "無效的資料夾路徑"}), 400
+
+        reversible = mode == "reversible"
+        config = load_config(CONFIG_PATH)
+        file_types = config.get("file_types") or [".txt", ".md", ".docx", ".xlsx", ".pptx", ".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff"]
+
+        def generate():
+            from batch import _collect_files
+            import shutil
+            files = _collect_files(folder, file_types)
+            text_anon = Anonymizer(config=config, session_id="web_batch",
+                                   use_ner=use_ner, reversible=reversible)
+            img_anon = ImageAnonymizer(config=config, use_ner=use_ner)
+            total = len(files)
+            output_dir = folder.rstrip(os.sep) + "_anonymized"
+            os.makedirs(output_dir, exist_ok=True)
+            results = []
+
+            for idx, fpath in enumerate(files):
+                fname = os.path.basename(fpath)
+                ext = os.path.splitext(fpath)[1].lower()
+                yield f"data: {json.dumps({'type': 'progress', 'current': idx + 1, 'total': total, 'file': fname})}\n\n"
+
+                try:
+                    if ext in IMAGE_EXTENSIONS:
+                        anon_path, summary = img_anon.anonymize_image(
+                            fpath, output_dir=output_dir, reversible=reversible)
+                        results.append({"name": fname, "summary": summary})
+                    else:
+                        anon_path, summary = text_anon.anonymize_file(fpath)
+                        if anon_path:
+                            rel = os.path.relpath(fpath, folder)
+                            dest = os.path.join(output_dir, rel)
+                            os.makedirs(os.path.dirname(dest), exist_ok=True)
+                            shutil.copy2(anon_path, dest)
+                        results.append({"name": fname, "summary": summary})
+                except Exception as e:
+                    results.append({"name": fname, "summary": f"錯誤：{e}"})
+
+            yield f"data: {json.dumps({'type': 'done', 'results': results, 'output_dir': output_dir})}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app
