@@ -27,7 +27,7 @@ block_cipher = None
 # Base directory — use SPECPATH (set by PyInstaller to the spec file's directory)
 # Fall back to current working directory if SPECPATH is not in expected location
 _specdir = os.path.dirname(os.path.abspath(SPECPATH))
-if os.path.isfile(os.path.join(_specdir, 'gui', 'app.py')):
+if os.path.isfile(os.path.join(_specdir, 'gui', 'web_app.py')):
     BASE_DIR = _specdir
 else:
     BASE_DIR = os.getcwd()
@@ -60,6 +60,15 @@ config_file = os.path.join(BASE_DIR, 'config.json')
 if os.path.isfile(config_file):
     datas.append((config_file, '.'))
 
+# Web UI static files and templates
+gui_static = os.path.join(BASE_DIR, 'gui', 'static')
+if os.path.isdir(gui_static):
+    datas.append((gui_static, os.path.join('gui', 'static')))
+
+gui_templates = os.path.join(BASE_DIR, 'gui', 'templates')
+if os.path.isdir(gui_templates):
+    datas.append((gui_templates, os.path.join('gui', 'templates')))
+
 # Hidden imports
 hiddenimports = [
     'PIL',
@@ -69,6 +78,7 @@ hiddenimports = [
     'docx',
     'openpyxl',
     'pptx',
+    'flask',
 ]
 
 # Exclude NER dependencies in lite mode
@@ -94,7 +104,7 @@ else:
 app_name = 'DataAnonymizer' + ('Lite' if lite_mode else '')
 
 a = Analysis(
-    [os.path.join(BASE_DIR, 'gui', 'app.py')],
+    [os.path.join(BASE_DIR, 'gui', 'web_app.py')],
     pathex=[BASE_DIR],
     binaries=[],
     datas=datas,
