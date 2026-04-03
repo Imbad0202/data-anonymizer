@@ -30,20 +30,32 @@ from updater import __version__
 
 logger = logging.getLogger(__name__)
 
-# Directories that should never be processed via batch
+# Directories that should never be processed via batch (pre-normalized + resolved)
 _SENSITIVE_DIRS = {
-    "/etc", "/var", "/usr", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev",
-    os.path.expanduser("~/.ssh"),
-    os.path.expanduser("~/.gnupg"),
-    os.path.expanduser("~/.claude"),
+    os.path.normpath(os.path.realpath(p)) for p in [
+        "/etc", "/var", "/usr", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev",
+        os.path.expanduser("~/.ssh"),
+        os.path.expanduser("~/.gnupg"),
+        os.path.expanduser("~/.claude"),
+    ]
 }
+# Windows-specific sensitive directories
+if sys.platform == "win32":
+    _SENSITIVE_DIRS.update(
+        os.path.normpath(p) for p in [
+            os.environ.get("SystemRoot", r"C:\Windows"),
+            os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32"),
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+            os.path.expanduser("~\\AppData"),
+        ] if p
+    )
 
 
 def _is_safe_batch_path(folder: str) -> bool:
     """Return True if the folder is safe to process in batch mode."""
     norm = os.path.normpath(os.path.realpath(folder))
-    for sensitive in _SENSITIVE_DIRS:
-        s = os.path.normpath(sensitive)
+    for s in _SENSITIVE_DIRS:
         if norm == s or norm.startswith(s + os.sep):
             return False
     return True
@@ -76,6 +88,10 @@ def create_app(upload_dir: str = None) -> Flask:
 
     APP_DIR = _PROJECT_ROOT
     CONFIG_PATH = os.path.join(APP_DIR, "config.json")
+
+    @app.errorhandler(413)
+    def request_entity_too_large(error):
+        return jsonify({"error": "檔案大小超過上限（100MB）"}), 413
 
     @app.before_request
     def update_last_request_time():

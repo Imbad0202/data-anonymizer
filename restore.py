@@ -10,20 +10,10 @@ import re
 import sys
 
 from mapping_manager import MappingManager, TOKEN_PATTERN, TMP_ANONYMIZER_DIR
-
-# Anonymizer's own directory — never touch these files
-_ANONYMIZER_DIR = os.path.expanduser("~/.claude/anonymizer")
+from hook_router import _is_internal_file
 
 # Tools that produce file output we should inspect
 _WRITE_TOOLS = {"Write", "Edit"}
-
-
-def _is_internal_file(file_path: str) -> bool:
-    """Return True if the file lives inside the anonymizer project itself."""
-    try:
-        return os.path.abspath(file_path).startswith(os.path.abspath(_ANONYMIZER_DIR))
-    except Exception:
-        return False
 
 
 def handle_post_tool_use(stdin_data: dict, mappings_dir: str = TMP_ANONYMIZER_DIR) -> None:
