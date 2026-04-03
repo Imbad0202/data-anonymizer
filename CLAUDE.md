@@ -49,7 +49,7 @@ models.py           # Span model + resolver
 detectors/          # 三層偵測（custom, regex, ner）
 parsers/            # 格式解析（text, docx, xlsx, pptx, pdf, image）
 gui/                # Flask Web UI（web_app.py + static/ + templates/）
-tests/              # 175+ tests
+tests/              # 175 tests
 ```
 
 ## Development Commands

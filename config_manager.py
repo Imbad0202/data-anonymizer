@@ -39,6 +39,16 @@ _SCHEMA_KEYS = {
     "substring_match": bool,
 }
 
+# Optional keys that setup.py may add (not required for validation)
+_OPTIONAL_KEYS = {
+    "auto_detect": bool,
+    "sensitivity": str,
+    "scan_paths": list,
+    "persist_mapping": bool,
+    "max_file_pages": int,
+    "hook_timeout_seconds": int,
+}
+
 
 def validate_config(config: dict) -> Tuple[bool, str]:
     """Validate config dict against schema v1.
@@ -58,6 +68,11 @@ def validate_config(config: dict) -> Tuple[bool, str]:
         if key not in config:
             return False, f"設定檔缺少必要欄位：{key}"
         if not isinstance(config[key], expected_type):
+            return False, f"欄位 {key} 類型錯誤：預期 {expected_type.__name__}，實際 {type(config[key]).__name__}"
+
+    # Validate optional keys if present
+    for key, expected_type in _OPTIONAL_KEYS.items():
+        if key in config and not isinstance(config[key], expected_type):
             return False, f"欄位 {key} 類型錯誤：預期 {expected_type.__name__}，實際 {type(config[key]).__name__}"
 
     # Validate custom_terms values are lists of strings

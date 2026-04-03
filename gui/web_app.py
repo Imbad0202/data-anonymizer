@@ -30,6 +30,24 @@ from updater import __version__
 
 logger = logging.getLogger(__name__)
 
+# Directories that should never be processed via batch
+_SENSITIVE_DIRS = {
+    "/etc", "/var", "/usr", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev",
+    os.path.expanduser("~/.ssh"),
+    os.path.expanduser("~/.gnupg"),
+    os.path.expanduser("~/.claude"),
+}
+
+
+def _is_safe_batch_path(folder: str) -> bool:
+    """Return True if the folder is safe to process in batch mode."""
+    norm = os.path.normpath(os.path.realpath(folder))
+    for sensitive in _SENSITIVE_DIRS:
+        s = os.path.normpath(sensitive)
+        if norm == s or norm.startswith(s + os.sep):
+            return False
+    return True
+
 
 def create_app(upload_dir: str = None) -> Flask:
     """Create and configure the Flask application."""
@@ -38,6 +56,9 @@ def create_app(upload_dir: str = None) -> Flask:
         static_folder="static",
         template_folder="templates",
     )
+
+    # Max upload size: 100MB
+    app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
     # Upload directory for temp files
     if upload_dir is None:
@@ -205,6 +226,9 @@ def create_app(upload_dir: str = None) -> Flask:
         if not folder or not os.path.isdir(folder):
             return jsonify({"error": "無效的資料夾路徑"}), 400
 
+        if not _is_safe_batch_path(folder):
+            return jsonify({"error": "此路徑屬於系統敏感目錄，不允許批次處理"}), 403
+
         reversible = mode == "reversible"
         config = load_config(CONFIG_PATH)
         from config_manager import DEFAULT_FILE_TYPES
@@ -345,7 +369,7 @@ def wait_for_server(port: int, timeout: float = 10.0):
     raise RuntimeError(f"Server did not start within {timeout}s")
 
 
-def monitor_and_shutdown(app: Flask, timeout_seconds: int = 120):
+def monitor_and_shutdown(app: Flask, timeout_seconds: int = 600):
     """Monitor the last request time. Exit if idle for timeout_seconds."""
     while True:
         time.sleep(10)

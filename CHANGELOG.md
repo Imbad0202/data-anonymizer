@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2026-04-04
+
+### Added
+- Complete Claude Code hook setup instructions in both READMEs (settings.json configuration)
+- Image anonymization prerequisites: Tesseract install guide, DNN model download instructions
+- Missing Python dependencies in requirements.txt: Pillow, opencv-python, pytesseract
+- Batch path validation: blocks system-sensitive directories (/etc, ~/.ssh, ~/.claude, etc.)
+- Upload file size limit (100MB) for Web UI security
+
+### Changed
+- Auto-shutdown timeout extended from 120s to 600s (frontend health check serves as keep-alive)
+- Architecture diagram updated: tkinter → Flask Web UI (both READMEs)
+- GUI launch command corrected: `gui/app.py` → `gui/web_app.py`
+- Project structure listing updated to reflect current file layout
+- Test count updated: 168 → 175
+
+### Fixed
+- Config schema mismatch: `setup.py` now outputs `version` and `logo_templates` fields matching `config_manager.validate_config()` requirements
+- `config_manager.validate_config()` now accepts optional fields from setup wizard (scan_paths, persist_mapping, etc.) without rejecting them
+- License updated from "Private repository" to CC BY-NC 4.0
+
 ## [2.1.0] - 2026-03-29
 
 ### Added
@@ -74,6 +95,7 @@ All notable changes to this project will be documented in this file.
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 2.2.0 | 2026-04-04 | Security hardening, docs overhaul, config schema fix, CC BY-NC 4.0 |
 | 2.1.0 | 2026-03-29 | Web UI (Flask), design system, embedded fonts |
 | 2.0.0 | 2026-03-26 | Image anonymization, GUI, batch processing, Windows distribution |
 | 1.0.0 | 2026-03-25 | Core engine, 3-layer detection, hook integration, file parsers |

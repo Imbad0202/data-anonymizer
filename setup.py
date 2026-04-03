@@ -23,12 +23,14 @@ def ask_list(prompt):
 def main():
     print("\n歡迎使用脫敏引擎初始化工具！\n")
     config = {
+        "version": 1,
         "auto_detect": True,
         "sensitivity": "ask_uncertain",
         "custom_terms": {},
         "substring_match": True,
         "scan_paths": [],
         "file_types": [".docx", ".xlsx", ".pptx", ".pdf", ".md", ".csv", ".json", ".txt", ".html", ".xml"],
+        "logo_templates": [],
         "persist_mapping": False,
         "max_file_pages": 50,
         "hook_timeout_seconds": 120,

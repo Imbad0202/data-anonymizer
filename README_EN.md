@@ -11,7 +11,7 @@ Automatically detect and anonymize personally identifiable information (PII) bef
 - **Dual Mode** — Pseudonymization (reversible, generates token mapping) / Anonymization (irreversible, compliant with Taiwan's Personal Data Protection Act)
 - **Multi-format Support** — `.txt` `.md` `.docx` `.xlsx` `.pptx` `.pdf` `.jpg` `.png` `.bmp` `.tiff`
 - **Three-layer Detection** — Custom terms → Regex patterns → NER (ckip-transformers, optimized for Traditional Chinese)
-- **Desktop GUI** — tkinter interface with file picker / drag-and-drop / batch processing / Before/After preview
+- **Web UI** — Flask local web interface with drag-and-drop upload / batch processing / Before/After preview / SSE progress streaming
 - **Claude Code Hook** — Works as a PreToolUse hook for Claude Code, automatically intercepting and anonymizing sensitive files
 - **Config Export/Import** — Bundle as `.zip` for one-click distribution to colleagues
 - **Windows Installer** — PyInstaller packaging + Inno Setup installer, built automatically via GitHub Actions
@@ -23,8 +23,8 @@ Automatically detect and anonymize personally identifiable information (PII) bef
                 │           DATA ANONYMIZER v2             │
                 ├─────────────────────────────────────────┤
                 │  ┌──────────┐   ┌──────────────────┐   │
-                │  │   GUI    │   │  CLI / Hook Mode  │   │
-                │  │(tkinter) │   │ (Claude Code)     │   │
+                │  │  Web UI  │   │  CLI / Hook Mode  │   │
+                │  │ (Flask)  │   │ (Claude Code)     │   │
                 │  └────┬─────┘   └──────┬───────────┘   │
                 │       └───────┬────────┘               │
                 │               ▼                        │
@@ -50,14 +50,47 @@ python3 -m venv .venv
 # 2. Run setup wizard
 .venv/bin/python setup.py
 
-# 3. The hook automatically intercepts Claude Code's reads of sensitive paths
+# 3. Configure Claude Code hooks (add to ~/.claude/settings.json)
 ```
 
-### As a Desktop GUI
+Add the following to the `hooks` section of `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/anonymizer/.venv/bin/python ~/.claude/anonymizer/hook_router.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/anonymizer/.venv/bin/python ~/.claude/anonymizer/restore.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Once configured, Claude Code will automatically anonymize files under `scan_paths` when reading, and restore tokens when writing.
+
+### As a Web UI
 
 ```bash
-# Development mode
-.venv/bin/python gui/app.py
+# Development mode (auto-opens browser)
+.venv/bin/python gui/web_app.py
 ```
 
 Or download the Windows installer from [GitHub Releases](https://github.com/Imbad0202/data-anonymizer/releases).
@@ -85,7 +118,31 @@ print(result)   # [PERSON] studies at [SCHOOL], phone [PHONE]
 
 ## Image Anonymization
 
-Three-stage pipeline:
+### Prerequisites
+
+Image anonymization requires additional system packages (not installable via `pip`):
+
+```bash
+# macOS
+brew install tesseract tesseract-lang
+
+# Ubuntu / Debian
+sudo apt install tesseract-ocr tesseract-ocr-chi-tra
+
+# Windows
+# Download Tesseract installer: https://github.com/UB-Mannheim/tesseract/wiki
+# Select "Chinese Traditional" language pack during installation
+```
+
+Download the face detection model to the `models/` directory:
+
+```bash
+mkdir -p models && cd models
+curl -LO https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt
+curl -LO https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel
+```
+
+### Three-stage pipeline
 
 1. **OCR Text PII** — Tesseract OCR extracts text → existing detectors identify sensitive data → pixel coordinates mapped
 2. **Face Detection** — OpenCV DNN (res10_300x300_ssd_iter_140000.caffemodel), CPU-only
@@ -152,7 +209,7 @@ Two editions are built:
 .venv/bin/python -m pytest -v
 ```
 
-168 tests currently passing.
+175 tests currently passing.
 
 ## Project Structure
 
@@ -160,17 +217,19 @@ Two editions are built:
 anonymizer.py          # Core text anonymization engine
 image_anonymizer.py    # Image anonymization pipeline (OCR + Face + Logo)
 hook_router.py         # Claude Code PreToolUse hook router
+restore.py             # PostToolUse restore hook
 batch.py               # Batch processing
 config_manager.py      # Config export/import
-updater.py             # Auto-update checker
 mapping_manager.py     # Token mapping manager
-restore.py             # PostToolUse restore hook
+updater.py             # Auto-update checker
+models.py              # Span data model + overlap resolver
 detectors/             # Detection engines (custom, regex, NER)
 parsers/               # File parsers (text, docx, xlsx, pptx, pdf, image)
-gui/                   # tkinter GUI
-  app.py               # Main window
-  preview.py           # Before/After preview panel
-tests/                 # Tests (168 tests)
+gui/                   # Flask Web UI
+  web_app.py           # Flask backend + API
+  templates/           # HTML templates
+  static/              # CSS, JS, fonts
+tests/                 # Tests (175 tests)
 anonymizer.spec        # PyInstaller build spec
 installer.iss          # Inno Setup installer script
 .github/workflows/     # CI/CD
@@ -178,4 +237,10 @@ installer.iss          # Inno Setup installer script
 
 ## License
 
-Private repository.
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) — Free to use, modify, and share. No commercial use.
+
+**Attribution format:**
+```
+Based on Data Anonymizer by Cheng-I Wu
+https://github.com/Imbad0202/data-anonymizer
+```

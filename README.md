@@ -11,7 +11,7 @@
 - **雙模式** — 假名化（可還原，產生 token 對照表）/ 匿名化（不可逆，符合台灣個資法）
 - **多格式支援** — `.txt` `.md` `.docx` `.xlsx` `.pptx` `.pdf` `.jpg` `.png` `.bmp` `.tiff`
 - **三層偵測引擎** — 自訂詞彙 → 正則表達式 → NER（ckip-transformers，繁體中文最佳化）
-- **GUI 桌面應用** — tkinter 圖形介面，檔案選擇 / 拖放 / 批次處理 / Before/After 預覽
+- **Web UI** — Flask 本地 Web 介面，拖放上傳 / 批次處理 / Before/After 預覽 / SSE 即時進度
 - **Claude Code Hook** — 作為 Claude Code 的 PreToolUse hook，自動攔截並脫敏敏感檔案
 - **設定匯出/匯入** — 打包為 `.zip`，一鍵分發給同事
 - **Windows 安裝程式** — PyInstaller 打包 + Inno Setup 安裝檔，GitHub Actions 自動建置
@@ -23,8 +23,8 @@
                 │           DATA ANONYMIZER v2             │
                 ├─────────────────────────────────────────┤
                 │  ┌──────────┐   ┌──────────────────┐   │
-                │  │   GUI    │   │  CLI / Hook Mode  │   │
-                │  │(tkinter) │   │ (Claude Code)     │   │
+                │  │  Web UI  │   │  CLI / Hook Mode  │   │
+                │  │ (Flask)  │   │ (Claude Code)     │   │
                 │  └────┬─────┘   └──────┬───────────┘   │
                 │       └───────┬────────┘               │
                 │               ▼                        │
@@ -50,14 +50,47 @@ python3 -m venv .venv
 # 2. 執行設定精靈
 .venv/bin/python setup.py
 
-# 3. Hook 會自動攔截 Claude Code 對敏感路徑的讀取操作
+# 3. 設定 Claude Code Hook（加入 ~/.claude/settings.json）
 ```
 
-### 作為 GUI 桌面應用使用
+在 `~/.claude/settings.json` 的 `hooks` 區塊中加入：
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/anonymizer/.venv/bin/python ~/.claude/anonymizer/hook_router.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/anonymizer/.venv/bin/python ~/.claude/anonymizer/restore.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+設定完成後，Claude Code 讀取 `scan_paths` 下的檔案時會自動脫敏，寫入時會自動還原。
+
+### 作為 Web UI 使用
 
 ```bash
-# 開發模式啟動
-.venv/bin/python gui/app.py
+# 開發模式啟動（自動開啟瀏覽器）
+.venv/bin/python gui/web_app.py
 ```
 
 或下載 [GitHub Releases](https://github.com/Imbad0202/data-anonymizer/releases) 的 Windows 安裝程式。
@@ -85,7 +118,31 @@ print(result)   # [PERSON] 就讀 [SCHOOL]，電話 [PHONE]
 
 ## 圖片脫敏
 
-三階段管線處理：
+### 前置需求
+
+圖片脫敏需要額外安裝以下系統套件（`pip install` 無法安裝）：
+
+```bash
+# macOS
+brew install tesseract tesseract-lang
+
+# Ubuntu / Debian
+sudo apt install tesseract-ocr tesseract-ocr-chi-tra
+
+# Windows
+# 下載 Tesseract installer：https://github.com/UB-Mannheim/tesseract/wiki
+# 安裝時勾選 Chinese Traditional 語言包
+```
+
+人臉偵測模型需下載至 `models/` 目錄：
+
+```bash
+mkdir -p models && cd models
+curl -LO https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt
+curl -LO https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel
+```
+
+### 三階段管線處理
 
 1. **OCR 文字 PII** — Tesseract OCR 提取文字 → 現有偵測引擎辨識敏感資訊 → 定位像素座標
 2. **人臉偵測** — OpenCV DNN（res10_300x300_ssd_iter_140000.caffemodel），CPU-only
@@ -152,7 +209,7 @@ git push origin v2.0.0
 .venv/bin/python -m pytest -v
 ```
 
-目前 168 個測試全數通過。
+目前 175 個測試全數通過。
 
 ## 專案結構
 
@@ -160,17 +217,19 @@ git push origin v2.0.0
 anonymizer.py          # 核心文字脫敏引擎
 image_anonymizer.py    # 圖片脫敏管線（OCR + Face + Logo）
 hook_router.py         # Claude Code PreToolUse hook 路由
+restore.py             # PostToolUse 還原 hook
 batch.py               # 批次處理
 config_manager.py      # 設定匯出/匯入
-updater.py             # 自動更新檢查
 mapping_manager.py     # Token 對照表管理
-restore.py             # PostToolUse 還原 hook
+updater.py             # 自動更新檢查
+models.py              # Span 資料模型 + 重疊解析
 detectors/             # 偵測引擎（custom, regex, NER）
 parsers/               # 檔案解析器（text, docx, xlsx, pptx, pdf, image）
-gui/                   # tkinter GUI
-  app.py               # 主視窗
-  preview.py           # Before/After 預覽面板
-tests/                 # 測試（168 tests）
+gui/                   # Flask Web UI
+  web_app.py           # Flask 後端 + API
+  templates/           # HTML 模板
+  static/              # CSS、JS、字型
+tests/                 # 測試（175 tests）
 anonymizer.spec        # PyInstaller 打包規格
 installer.iss          # Inno Setup 安裝程式腳本
 .github/workflows/     # CI/CD
@@ -178,4 +237,10 @@ installer.iss          # Inno Setup 安裝程式腳本
 
 ## 授權
 
-Private repository.
+[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) — 自由使用、修改、分享，禁止商業用途。
+
+**署名格式：**
+```
+Based on Data Anonymizer by Cheng-I Wu
+https://github.com/Imbad0202/data-anonymizer
+```

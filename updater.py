@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 logger = logging.getLogger(__name__)
 
 # Current version — updated at build time by CI
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 DEFAULT_REPO = "Imbad0202/data-anonymizer"
 TIMEOUT_SECONDS = 3
