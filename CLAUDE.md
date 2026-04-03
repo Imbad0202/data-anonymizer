@@ -41,23 +41,15 @@ Data Anonymizer — 本地端個資偵測與脫敏工具（PII detection & anony
 ## Key Files
 
 ```
-anonymizer.py          # 核心引擎：Anonymizer class + anonymize_text/file
-image_anonymizer.py    # 圖片脫敏（OCR + Face + Logo detection）
-hook_router.py         # Claude Code PreToolUse hook 路由
-restore.py             # Claude Code PostToolUse 還原 hook
-batch.py               # 批次資料夾處理
-models.py              # Span model + overlap resolver
-mapping_manager.py     # Token 對照表（reversible mode）
-config_manager.py      # 設定匯出/匯入（.zip）
-setup.py               # 互動式設定精靈
-updater.py             # GitHub Releases 自動更新檢查
-learned_terms_manager.py # 不確定詞彙學習管理
-detectors/             # 三層偵測引擎
-parsers/               # 檔案格式解析器
-gui/web_app.py         # Flask Web UI 後端
-gui/static/            # CSS + JS
-gui/templates/         # HTML 模板
-tests/                 # 168+ tests
+anonymizer.py       # 核心引擎
+hook_router.py      # PreToolUse hook 路由
+restore.py          # PostToolUse 還原 hook
+batch.py            # 批次處理
+models.py           # Span model + resolver
+detectors/          # 三層偵測（custom, regex, ner）
+parsers/            # 格式解析（text, docx, xlsx, pptx, pdf, image）
+gui/                # Flask Web UI（web_app.py + static/ + templates/）
+tests/              # 175+ tests
 ```
 
 ## Development Commands
@@ -87,10 +79,7 @@ python3 -m venv .venv
 
 ## Design System
 
-所有 UI 視覺決策定義於 `DESIGN.md`。修改 Web UI 前必須先閱讀。
-- 主色：Teal (`#0F766E`)
-- 字型：DM Sans + Noto Sans TC + Geist Mono
-- 三欄佈局：左側偵測摘要 | 中間原始內容 | 右側脫敏結果
+修改 Web UI 前必須先閱讀 `DESIGN.md`。
 
 ## Coding Conventions
 
