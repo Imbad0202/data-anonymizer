@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1] - 2026-04-15
+
+### Fixed
+- Parser-aware output handling for `.docx`, `.xlsx`, `.pptx`, and extracted `.pdf` text in batch mode and Flask Web UI, avoiding corrupted downloads with mismatched extensions
+- Web UI download registry so single-file download and `download-all` always serve the actual processed artifact with stable anonymized filenames
+- Claude Code hook mapping flow now restores tokens using the real session id instead of a hard-coded hook session
+- Bash path protection now blocks indirect reads of protected scan paths instead of only a narrow set of file-reader commands
+- OCR pipeline now uses `pytesseract.Output.DICT`, restoring text-in-image detection outside mocked tests
+- Config export now normalizes absolute logo template paths inside `config.json` while still bundling the referenced logo files
+
 ## [2.2.0] - 2026-04-04
 
 ### Added
@@ -95,6 +105,7 @@ All notable changes to this project will be documented in this file.
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 2.2.1 | 2026-04-15 | Output path fixes, hook restore/session fix, OCR repair, config export normalization |
 | 2.2.0 | 2026-04-04 | Security hardening, docs overhaul, config schema fix, CC BY-NC 4.0 |
 | 2.1.0 | 2026-03-29 | Web UI (Flask), design system, embedded fonts |
 | 2.0.0 | 2026-03-26 | Image anonymization, GUI, batch processing, Windows distribution |
