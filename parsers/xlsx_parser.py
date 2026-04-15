@@ -2,7 +2,7 @@ from openpyxl import load_workbook
 
 
 class XlsxParser:
-    EXTENSIONS = {'.xlsx'}
+    EXTENSIONS = {".xlsx"}
     OUTPUT_EXTENSION = ".xlsx"
 
     def parse(self, file_path: str) -> str:
@@ -10,6 +10,7 @@ class XlsxParser:
             wb = load_workbook(file_path, data_only=True)
         except Exception:
             return ""
+
         parts = []
         for sheet in wb.sheetnames:
             ws = wb[sheet]
@@ -17,7 +18,7 @@ class XlsxParser:
                 for cell in row:
                     if cell is not None:
                         parts.append(str(cell))
-        return '\n'.join(parts)
+        return "\n".join(parts)
 
     def anonymize_to_path(self, file_path: str, output_path: str, anonymizer):
         try:
@@ -36,7 +37,7 @@ class XlsxParser:
                     if cell.data_type == "f":
                         continue
 
-                    anonymized, cell_spans = anonymizer._anonymize_text_with_spans(cell.value)
+                    anonymized, cell_spans = anonymizer.anonymize_value(cell.value)
                     if cell_spans:
                         cell.value = anonymized
                         spans.extend(cell_spans)

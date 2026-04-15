@@ -1,6 +1,7 @@
 """Tests for batch.py — folder-level batch processing."""
 
 import os
+import zipfile
 
 import pytest
 
@@ -165,3 +166,25 @@ class TestRunBatch:
 
         assert result.total_files == 0
         assert result.processed_files == 0
+
+    def test_docx_output_preserves_office_format(self, tmp_path):
+        from docx import Document
+
+        doc = Document()
+        doc.add_paragraph("聯絡電話 0912345678")
+        src = tmp_path / "report.docx"
+        doc.save(src)
+
+        config = {"custom_terms": {}, "file_types": [".docx"], "substring_match": True}
+        out_dir = tmp_path / "out"
+
+        result = run_batch(str(tmp_path), str(out_dir), config, reversible=False, use_ner=False)
+
+        out_path = out_dir / "report.docx"
+        assert result.processed_files == 1
+        assert out_path.exists()
+        assert zipfile.is_zipfile(out_path)
+
+        out_doc = Document(out_path)
+        text = "\n".join(p.text for p in out_doc.paragraphs)
+        assert "[PHONE]" in text

@@ -1,12 +1,13 @@
 """Tests for the Flask web UI API endpoints."""
 
+import io
 import json
 import os
 import sys
 import zipfile
-from io import BytesIO
 
 import pytest
+from PIL import Image
 
 # Ensure project root is on path
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -115,6 +116,23 @@ class TestPreview:
         assert data["original"] == data["anonymized"]
         assert len(data["spans"]) == 0
 
+    def test_preview_image_returns_image_summary(self, client, tmp_path):
+        image_path = tmp_path / "sample.png"
+        Image.new("RGB", (20, 20), "white").save(image_path)
+
+        with open(image_path, "rb") as f:
+            resp = client.post("/api/upload", data={"files": (f, "sample.png")},
+                               content_type="multipart/form-data")
+        file_id = json.loads(resp.data)["files"][0]["id"]
+
+        resp = client.post("/api/preview",
+                           data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["original"].startswith("圖片檔：")
+        assert "summary" in data
+
 
 class TestProcess:
     def test_process_returns_sse_stream(self, client, tmp_path):
@@ -160,7 +178,7 @@ class TestDownload:
                            data=json.dumps({"file_ids": [fid]}),
                            content_type="application/json")
         assert resp.status_code == 200
-        with zipfile.ZipFile(BytesIO(resp.data)) as zf:
+        with zipfile.ZipFile(io.BytesIO(resp.data)) as zf:
             names = zf.namelist()
             assert any(name.endswith("test_anonymized.txt") for name in names)
             content = zf.read(names[0]).decode("utf-8")

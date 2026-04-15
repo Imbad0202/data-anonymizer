@@ -1,18 +1,18 @@
 import os
 from typing import Dict, List, Optional, Tuple
 
-from models import Span
-from mapping_manager import MappingManager, TMP_ANONYMIZER_DIR
 from detectors import build_detectors, collect_spans
+from mapping_manager import MappingManager, TMP_ANONYMIZER_DIR
+from models import Span
 
 
 def get_parser(file_path: str):
     """Return the appropriate parser instance for the given file extension, or None."""
-    from parsers.text import TextParser
     from parsers.docx_parser import DocxParser
-    from parsers.xlsx_parser import XlsxParser
-    from parsers.pptx_parser import PptxParser
     from parsers.pdf_parser import PdfParser
+    from parsers.pptx_parser import PptxParser
+    from parsers.text import TextParser
+    from parsers.xlsx_parser import XlsxParser
 
     ext = os.path.splitext(file_path)[1].lower()
     for parser_cls in (TextParser, DocxParser, XlsxParser, PptxParser, PdfParser):
@@ -31,12 +31,7 @@ class Anonymizer:
         self.max_file_pages: int = config.get("max_file_pages", 50)
 
         self.mapping = MappingManager(session_id=session_id, reversible=reversible)
-
         self.custom_detector, self.regex_detector, self.ner_detector = build_detectors(config, use_ner)
-
-    # ------------------------------------------------------------------
-    # Core pipeline helpers
-    # ------------------------------------------------------------------
 
     def _collect_spans(self, text: str) -> List[Span]:
         """Run all enabled detectors on text and return resolved spans."""
@@ -50,12 +45,16 @@ class Anonymizer:
             result = result[: span.start] + token + result[span.end :]
         return result
 
-    def _anonymize_text_with_spans(self, text: str) -> Tuple[str, List[Span]]:
-        """Return anonymized text and the spans that were replaced."""
+    def anonymize_value(self, text: str) -> Tuple[str, List[Span]]:
+        """Anonymize one text fragment and return the collected spans."""
         spans = self._collect_spans(text)
         if not spans:
             return text, []
         return self._apply_spans(text, spans), spans
+
+    def _anonymize_text_with_spans(self, text: str) -> Tuple[str, List[Span]]:
+        """Backward-compatible alias used by parser implementations and tests."""
+        return self.anonymize_value(text)
 
     def _build_summary(self, spans: List[Span], file_path: Optional[str] = None) -> str:
         if not spans:
@@ -73,42 +72,33 @@ class Anonymizer:
             return f"已脫敏檔案《{os.path.basename(file_path)}》：{detail}"
         return f"已脫敏：{detail}"
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def anonymize_text(self, text: str) -> Tuple[str, str]:
-        """
-        Anonymize plain text.
-
-        Returns
-        -------
-        (anonymized_text, summary)
-        """
-        anonymized, spans = self._anonymize_text_with_spans(text)
+        """Anonymize plain text and return (text, summary)."""
+        anonymized, spans = self.anonymize_value(text)
         if not spans:
             return text, self._build_summary([])
-        summary = self._build_summary(spans)
 
+        summary = self._build_summary(spans)
         if self.persist_mapping:
             self.mapping.save()
 
         return anonymized, summary
 
     def anonymize_file_to_text_temp(self, file_path: str) -> Tuple[Optional[str], str]:
-        """Parse a file and write anonymized extracted text to a temp text file."""
+        """Parse a file and write anonymized extracted text to a temp `.txt` file."""
         parser = get_parser(file_path)
         if parser is None:
             return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
 
         text = parser.parse(file_path)
-        anonymized, spans = self._anonymize_text_with_spans(text)
-
+        anonymized, spans = self.anonymize_value(text)
         if not spans:
             return None, self._build_summary([], file_path=file_path)
 
         anon_path = self.mapping.register_file_path(file_path, extension=".txt")
-        os.makedirs(os.path.dirname(anon_path), exist_ok=True)
+        parent = os.path.dirname(anon_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(anon_path, "w", encoding="utf-8") as f:
             f.write(anonymized)
 
@@ -117,37 +107,38 @@ class Anonymizer:
 
         return anon_path, self._build_summary(spans, file_path=file_path)
 
-    def anonymize_file(self, file_path: str) -> Tuple[Optional[str], str]:
-        """
-        Anonymize a file and write the result to a temp path using a safe output format.
+    def anonymize_file_to_path(self, file_path: str, output_path: str) -> Tuple[Optional[str], str]:
+        """Write an anonymized file to an explicit output path when PII is found."""
+        parser = get_parser(file_path)
+        if parser is None:
+            return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
 
-        Returns
-        -------
-        (anon_file_path_or_None, summary)
-        """
+        parent = os.path.dirname(output_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
+        changed, spans = parser.anonymize_to_path(file_path, output_path, self)
+        if not changed:
+            return None, self._build_summary([], file_path=file_path)
+
+        if self.persist_mapping:
+            self.mapping.save()
+
+        return output_path, self._build_summary(spans, file_path=file_path)
+
+    def anonymize_file(self, file_path: str) -> Tuple[Optional[str], str]:
+        """Anonymize a file and write the result to a temp path using a safe output format."""
         parser = get_parser(file_path)
         if parser is None:
             return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
 
         output_ext = getattr(parser, "OUTPUT_EXTENSION", os.path.splitext(file_path)[1].lower() or ".txt")
         anon_path = self.mapping.register_file_path(file_path, extension=output_ext)
-        changed, spans = parser.anonymize_to_path(file_path, anon_path, self)
-
-        if not changed:
-            return None, self._build_summary([], file_path=file_path)
-
-        summary = self._build_summary(spans, file_path=file_path)
-        if self.persist_mapping:
-            self.mapping.save()
-
-        return anon_path, summary
+        return self.anonymize_file_to_path(file_path, anon_path)
 
 
 def cleanup(max_age_hours: int = 24) -> list:
-    """Remove anonymized temp files and session mappings older than max_age_hours.
-
-    Returns list of removed file paths.
-    """
+    """Remove anonymized temp files and session mappings older than max_age_hours."""
     import glob
     import time
 
@@ -165,6 +156,7 @@ def cleanup(max_age_hours: int = 24) -> list:
 
 if __name__ == "__main__":
     import sys
+
     if "--cleanup" in sys.argv:
         removed = cleanup()
         for f in removed:

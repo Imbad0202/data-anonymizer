@@ -136,6 +136,7 @@ class TestStageOCR:
         img = Image.new("RGB", (400, 100), "white")
 
         with patch("image_anonymizer.pytesseract") as mock_tess:
+            mock_tess.Output.DICT = "dict"
             mock_tess.image_to_data.return_value = mock_data
             regions = anon._stage_ocr(img)
             assert mock_tess.image_to_data.call_args.kwargs["output_type"] == mock_tess.Output.DICT
