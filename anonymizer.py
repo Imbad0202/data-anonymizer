@@ -1,7 +1,7 @@
 import os
 from typing import Dict, List, Optional, Tuple
 
-from models import Span, resolve_spans
+from models import Span
 from mapping_manager import MappingManager, TMP_ANONYMIZER_DIR
 from detectors import build_detectors, collect_spans
 
@@ -50,6 +50,13 @@ class Anonymizer:
             result = result[: span.start] + token + result[span.end :]
         return result
 
+    def _anonymize_text_with_spans(self, text: str) -> Tuple[str, List[Span]]:
+        """Return anonymized text and the spans that were replaced."""
+        spans = self._collect_spans(text)
+        if not spans:
+            return text, []
+        return self._apply_spans(text, spans), spans
+
     def _build_summary(self, spans: List[Span], file_path: Optional[str] = None) -> str:
         if not spans:
             prefix = f"檔案《{os.path.basename(file_path)}》：" if file_path else ""
@@ -78,12 +85,9 @@ class Anonymizer:
         -------
         (anonymized_text, summary)
         """
-        spans = self._collect_spans(text)
-
+        anonymized, spans = self._anonymize_text_with_spans(text)
         if not spans:
             return text, self._build_summary([])
-
-        anonymized = self._apply_spans(text, spans)
         summary = self._build_summary(spans)
 
         if self.persist_mapping:
@@ -91,9 +95,31 @@ class Anonymizer:
 
         return anonymized, summary
 
+    def anonymize_file_to_text_temp(self, file_path: str) -> Tuple[Optional[str], str]:
+        """Parse a file and write anonymized extracted text to a temp text file."""
+        parser = get_parser(file_path)
+        if parser is None:
+            return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
+
+        text = parser.parse(file_path)
+        anonymized, spans = self._anonymize_text_with_spans(text)
+
+        if not spans:
+            return None, self._build_summary([], file_path=file_path)
+
+        anon_path = self.mapping.register_file_path(file_path, extension=".txt")
+        os.makedirs(os.path.dirname(anon_path), exist_ok=True)
+        with open(anon_path, "w", encoding="utf-8") as f:
+            f.write(anonymized)
+
+        if self.persist_mapping:
+            self.mapping.save()
+
+        return anon_path, self._build_summary(spans, file_path=file_path)
+
     def anonymize_file(self, file_path: str) -> Tuple[Optional[str], str]:
         """
-        Parse a file, anonymize its content, and write the result to a temp path.
+        Anonymize a file and write the result to a temp path using a safe output format.
 
         Returns
         -------
@@ -103,22 +129,14 @@ class Anonymizer:
         if parser is None:
             return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
 
-        text = parser.parse(file_path)
+        output_ext = getattr(parser, "OUTPUT_EXTENSION", os.path.splitext(file_path)[1].lower() or ".txt")
+        anon_path = self.mapping.register_file_path(file_path, extension=output_ext)
+        changed, spans = parser.anonymize_to_path(file_path, anon_path, self)
 
-        spans = self._collect_spans(text)
-
-        if not spans:
+        if not changed:
             return None, self._build_summary([], file_path=file_path)
 
-        anonymized = self._apply_spans(text, spans)
         summary = self._build_summary(spans, file_path=file_path)
-
-        # Write anonymized content to registered temp path
-        anon_path = self.mapping.register_file_path(file_path)
-        os.makedirs(os.path.dirname(anon_path), exist_ok=True)
-        with open(anon_path, "w", encoding="utf-8") as f:
-            f.write(anonymized)
-
         if self.persist_mapping:
             self.mapping.save()
 

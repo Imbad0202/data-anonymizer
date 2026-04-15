@@ -62,6 +62,12 @@ class TestHookRouter:
         result = handle_pretool_use(stdin_data, self.config, use_ner=False)
         assert result == {}
 
+    def test_bash_python_reader_denied(self):
+        cmd = 'python3 -c "print(open(\'/tmp/test_scan/test.md\').read())"'
+        stdin_data = {"session_id": "test_session", "tool_name": "Bash", "tool_input": {"command": cmd}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
     def test_read_anonymizer_source_code_allowed(self):
         """Source .py files should NOT be blocked — only config/mapping files."""
         stdin_data = {"session_id": "test_session", "tool_name": "Read", "tool_input": {"file_path": os.path.expanduser("~/.claude/anonymizer/hook_router.py")}}

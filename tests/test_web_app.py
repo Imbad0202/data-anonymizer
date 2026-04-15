@@ -3,6 +3,8 @@
 import json
 import os
 import sys
+import zipfile
+from io import BytesIO
 
 import pytest
 
@@ -146,9 +148,10 @@ class TestDownload:
     def _upload_and_process(self, client, tmp_path, filename, content):
         """Upload a file, process it, return file_id."""
         fid = _upload_file(client, tmp_path, filename, content)
-        client.post("/api/process",
-                    data=json.dumps({"file_ids": [fid], "mode": "reversible", "use_ner": False}),
-                    content_type="application/json")
+        resp = client.post("/api/process",
+                           data=json.dumps({"file_ids": [fid], "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        resp.get_data(as_text=True)
         return fid
 
     def test_download_all_returns_zip(self, client, tmp_path):
@@ -156,8 +159,12 @@ class TestDownload:
         resp = client.post("/api/download-all",
                            data=json.dumps({"file_ids": [fid]}),
                            content_type="application/json")
-        # Should return zip or 204 (no content if nothing was written)
-        assert resp.status_code in (200, 204)
+        assert resp.status_code == 200
+        with zipfile.ZipFile(BytesIO(resp.data)) as zf:
+            names = zf.namelist()
+            assert any(name.endswith("test_anonymized.txt") for name in names)
+            content = zf.read(names[0]).decode("utf-8")
+            assert "0912345678" not in content
 
 
 class TestFullFlow:

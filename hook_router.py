@@ -115,7 +115,7 @@ def _is_anonymized_temp(path: str) -> bool:
 # Per-tool handlers
 # ---------------------------------------------------------------------------
 
-def _handle_read(tool_input: Dict, config: Dict, use_ner: bool) -> Dict[str, Any]:
+def _handle_read(tool_input: Dict, config: Dict, use_ner: bool, session_id: str) -> Dict[str, Any]:
     file_path = tool_input.get("file_path", "")
     scan_paths = config.get("scan_paths", [])
     file_types = config.get("file_types", [])
@@ -130,10 +130,9 @@ def _handle_read(tool_input: Dict, config: Dict, use_ner: bool) -> Dict[str, Any
             # File doesn't exist yet; just approve
             return _approve()
 
-        session_id = "hook_router_session"
         from anonymizer import Anonymizer
         anon = Anonymizer(config=config, session_id=session_id, use_ner=use_ner)
-        anon_path, summary = anon.anonymize_file(file_path)
+        anon_path, summary = anon.anonymize_file_to_text_temp(file_path)
 
         if anon_path is None:
             # No PII found
@@ -207,10 +206,23 @@ def _handle_bash(tool_input: Dict, config: Dict) -> Dict[str, Any]:
             return _deny("此指令嘗試存取脫敏器敏感資料，已被攔截。")
         # Otherwise allow — source code access is fine
 
-    # 2. If command contains file-read commands AND sensitive paths → deny
+    # 2. Any Bash command that references a protected scan_path is denied.
+    #    Bash is too expressive to safely distinguish reads from exfiltration
+    #    or indirect interpreters such as python -c / ruby -e.
+    for sp in scan_paths:
+        candidates = {
+            sp,
+            sp.rstrip("/\\"),
+            os.path.normpath(sp),
+            os.path.realpath(sp),
+        }
+        for candidate in candidates:
+            if candidate and candidate in command:
+                return _deny("此指令嘗試存取受保護的資料夾，已被攔截。")
+
+    # Keep legacy read-command checks as a defense-in-depth fallback.
     if FILE_READ_COMMANDS.search(command):
         for sp in scan_paths:
-            # Normalize scan path for comparison (strip trailing slash for matching)
             sp_stripped = sp.rstrip("/")
             sp_with_slash = sp if sp.endswith("/") else sp + "/"
             if sp_stripped in command or sp_with_slash in command:
@@ -247,9 +259,10 @@ def handle_pretool_use(
     """
     tool_name = stdin_data.get("tool_name", "")
     tool_input = stdin_data.get("tool_input", {})
+    session_id = stdin_data.get("session_id", "") or "hook_router_session"
 
     if tool_name == "Read":
-        return _handle_read(tool_input, config, use_ner)
+        return _handle_read(tool_input, config, use_ner, session_id)
     elif tool_name == "Edit":
         return _handle_edit(tool_input, config)
     elif tool_name == "Grep":

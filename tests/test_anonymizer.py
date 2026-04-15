@@ -60,6 +60,31 @@ class TestAnonymizer:
             if anon_path and os.path.exists(anon_path):
                 os.unlink(anon_path)
 
+    def test_anonymize_docx_file_preserves_format(self):
+        from docx import Document
+
+        anon = Anonymizer(config=self.config, session_id="test_docx", use_ner=False)
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
+            path = f.name
+
+        anon_path = None
+        try:
+            doc = Document()
+            doc.add_paragraph("國立OO大學 test@test.com")
+            doc.save(path)
+
+            anon_path, summary = anon.anonymize_file(path)
+            out_doc = Document(anon_path)
+            text = "\n".join(p.text for p in out_doc.paragraphs)
+
+            assert "國立OO大學" not in text
+            assert "__ANON:SCHOOL_001__" in text
+            assert anon_path.endswith(".docx")
+        finally:
+            os.unlink(path)
+            if anon_path and os.path.exists(anon_path):
+                os.unlink(anon_path)
+
     def test_no_pii_returns_unchanged(self):
         anon = Anonymizer(config=self.config, session_id="test5", use_ner=False)
         text = "今天天氣很好，出去走走"

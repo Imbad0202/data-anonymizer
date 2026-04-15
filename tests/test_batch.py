@@ -138,6 +138,24 @@ class TestRunBatch:
         out_content = open(os.path.join(str(tmp_path), "out", "pii.txt"), encoding="utf-8").read()
         assert "0912345678" not in out_content
 
+    def test_docx_output_remains_valid_docx(self, tmp_path):
+        from docx import Document
+
+        src = tmp_path / "sample.docx"
+        doc = Document()
+        doc.add_paragraph("電話 0912345678")
+        doc.save(src)
+
+        config = {"custom_terms": {}, "file_types": [".docx"], "substring_match": True}
+        result = run_batch(str(tmp_path), str(tmp_path / "out"), config, use_ner=False)
+
+        assert result.pii_found_files == 1
+        out_path = tmp_path / "out" / "sample.docx"
+        out_doc = Document(str(out_path))
+        text = "\n".join(p.text for p in out_doc.paragraphs)
+        assert "0912345678" not in text
+        assert "__ANON:PHONE_001__" in text
+
     def test_empty_folder(self, tmp_path):
         empty = tmp_path / "empty"
         empty.mkdir()

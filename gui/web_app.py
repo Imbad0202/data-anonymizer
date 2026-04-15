@@ -79,6 +79,7 @@ def create_app(upload_dir: str = None) -> Flask:
 
     # In-memory registry: file_id → {name, path, size}
     app.config["FILE_REGISTRY"] = {}
+    app.config["PROCESSED_REGISTRY"] = {}
 
     # Track last request time for auto-shutdown
     app.config["LAST_REQUEST_TIME"] = time.time()
@@ -88,6 +89,17 @@ def create_app(upload_dir: str = None) -> Flask:
 
     APP_DIR = _PROJECT_ROOT
     CONFIG_PATH = os.path.join(APP_DIR, "config.json")
+
+    def build_download_name(filename: str, output_ext: str = None) -> str:
+        base, original_ext = os.path.splitext(filename)
+        ext = output_ext if output_ext is not None else original_ext
+        return f"{base}_anonymized{ext}"
+
+    def build_output_path(file_id: str, filename: str, output_ext: str = None) -> str:
+        ext = output_ext if output_ext is not None else os.path.splitext(filename)[1]
+        output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
+        os.makedirs(output_dir, exist_ok=True)
+        return os.path.join(output_dir, f"{file_id}_{build_download_name(filename, ext)}")
 
     @app.errorhandler(413)
     def request_entity_too_large(error):
@@ -198,6 +210,8 @@ def create_app(upload_dir: str = None) -> Flask:
             img_anon = ImageAnonymizer(config=config, use_ner=use_ner)
             total = len(file_ids)
             results = []
+            output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
+            os.makedirs(output_dir, exist_ok=True)
 
             for idx, fid in enumerate(file_ids):
                 file_info = app.config["FILE_REGISTRY"].get(fid)
@@ -212,18 +226,35 @@ def create_app(upload_dir: str = None) -> Flask:
 
                 try:
                     if ext in IMAGE_EXTENSIONS:
-                        out_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
-                        os.makedirs(out_dir, exist_ok=True)
                         anon_path, summary = img_anon.anonymize_image(
-                            fpath, output_dir=out_dir, reversible=reversible)
-                        results.append({"file_id": fid, "name": fname, "output": anon_path, "summary": summary})
+                            fpath, output_dir=output_dir, reversible=reversible)
+                        target_path = build_output_path(fid, fname)
+                        if anon_path is None:
+                            shutil.copy2(fpath, target_path)
+                        elif os.path.abspath(anon_path) != os.path.abspath(target_path):
+                            shutil.move(anon_path, target_path)
+                        else:
+                            target_path = anon_path
                     else:
+                        parser = get_parser(fpath)
+                        preferred_ext = getattr(parser, "OUTPUT_EXTENSION", ext or ".txt") if parser else ext or ".txt"
                         anon_path, summary = text_anon.anonymize_file(fpath)
-                        results.append({"file_id": fid, "name": fname, "output": anon_path, "summary": summary})
+                        if anon_path is None:
+                            target_path = build_output_path(fid, fname)
+                            shutil.copy2(fpath, target_path)
+                        else:
+                            target_path = build_output_path(fid, fname, preferred_ext)
+                            shutil.copy2(anon_path, target_path)
+
+                    download_name = os.path.basename(target_path).split("_", 1)[1]
+                    app.config["PROCESSED_REGISTRY"][fid] = {
+                        "path": target_path,
+                        "download_name": download_name,
+                    }
+                    results.append({"file_id": fid, "name": fname, "output": target_path, "summary": summary})
                 except Exception as e:
                     results.append({"file_id": fid, "name": fname, "output": None, "summary": f"錯誤：{e}"})
 
-            output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
             yield f"data: {json.dumps({'type': 'done', 'results': results, 'output_dir': output_dir})}\n\n"
 
         return Response(
@@ -270,14 +301,27 @@ def create_app(upload_dir: str = None) -> Flask:
                     if ext in IMAGE_EXTENSIONS:
                         anon_path, summary = img_anon.anonymize_image(
                             fpath, output_dir=output_dir, reversible=reversible)
-                        results.append({"name": fname, "summary": summary})
-                    else:
-                        anon_path, summary = text_anon.anonymize_file(fpath)
-                        if anon_path:
+                        if anon_path is None:
                             rel = os.path.relpath(fpath, folder)
                             dest = os.path.join(output_dir, rel)
                             os.makedirs(os.path.dirname(dest), exist_ok=True)
+                            shutil.copy2(fpath, dest)
+                        results.append({"name": fname, "summary": summary})
+                    else:
+                        parser = get_parser(fpath)
+                        output_ext = getattr(parser, "OUTPUT_EXTENSION", ext or ".txt") if parser else ext or ".txt"
+                        anon_path, summary = text_anon.anonymize_file(fpath)
+                        if anon_path:
+                            rel = os.path.relpath(fpath, folder)
+                            rel = os.path.splitext(rel)[0] + output_ext
+                            dest = os.path.join(output_dir, rel)
+                            os.makedirs(os.path.dirname(dest), exist_ok=True)
                             shutil.copy2(anon_path, dest)
+                        else:
+                            rel = os.path.relpath(fpath, folder)
+                            dest = os.path.join(output_dir, rel)
+                            os.makedirs(os.path.dirname(dest), exist_ok=True)
+                            shutil.copy2(fpath, dest)
                         results.append({"name": fname, "summary": summary})
                 except Exception as e:
                     results.append({"name": fname, "summary": f"錯誤：{e}"})
@@ -324,35 +368,27 @@ def create_app(upload_dir: str = None) -> Flask:
 
     @app.route("/api/download/<file_id>")
     def download_file(file_id):
-        file_info = app.config["FILE_REGISTRY"].get(file_id)
-        if not file_info:
+        processed = app.config["PROCESSED_REGISTRY"].get(file_id)
+        if not processed:
             return jsonify({"error": "找不到檔案"}), 404
-        output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
-        base, ext = os.path.splitext(file_info["name"])
-        anon_name = f"{base}_anonymized{ext}"
-        for root, dirs, files in os.walk(output_dir):
-            for fname in files:
-                if file_id in fname or file_info["name"] in fname:
-                    return send_file(os.path.join(root, fname), as_attachment=True,
-                                     download_name=anon_name)
-        return jsonify({"error": "尚未處理此檔案"}), 404
+        return send_file(
+            processed["path"],
+            as_attachment=True,
+            download_name=processed["download_name"],
+        )
 
     @app.route("/api/download-all", methods=["POST"])
     def download_all():
         data = request.get_json()
         file_ids = data.get("file_ids", [])
-        output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
-
-        if not os.path.isdir(output_dir):
-            return "", 204
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(output_dir):
-                for fname in files:
-                    full = os.path.join(root, fname)
-                    arcname = os.path.relpath(full, output_dir)
-                    zf.write(full, arcname)
+            for file_id in file_ids:
+                processed = app.config["PROCESSED_REGISTRY"].get(file_id)
+                if not processed:
+                    continue
+                zf.write(processed["path"], processed["download_name"])
 
         buf.seek(0)
         if buf.getbuffer().nbytes <= 22:  # Empty zip
