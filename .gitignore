@@ -7,3 +7,4 @@ __pycache__/
 .venv/
 ckip_models/
 ckip_model_cache/
+_internal/
