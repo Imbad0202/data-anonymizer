@@ -35,16 +35,15 @@ else:
 
 # Version (for macOS Info.plist) — read textually to avoid sys.path side effects
 import re as _re
-_updater_path = os.path.join(BASE_DIR, "updater.py")
+_version_file = os.path.join(BASE_DIR, "updater.py")
 APP_VERSION = "0.0.0"
-if os.path.isfile(_updater_path):
-    with open(_updater_path, encoding="utf-8") as _f:
-        _m = _re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', _f.read(), _re.M)
-    if _m:
-        APP_VERSION = _m.group(1)
+if os.path.isfile(_version_file):
+    with open(_version_file, encoding="utf-8") as _fh:
+        _version_match = _re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', _fh.read(), _re.M)
+    if _version_match:
+        APP_VERSION = _version_match.group(1)
     else:
         sys.stderr.write("WARN: could not parse __version__ from updater.py; using 0.0.0\n")
-del _updater_path
 
 # Data files to bundle
 datas = [
@@ -110,6 +109,8 @@ if lite_mode:
 else:
     hiddenimports.extend(["torch", "transformers", "ckip_transformers"])
 
+_lite_suffix = " Lite" if lite_mode else ""
+_upx_enabled = not IS_MACOS  # UPX conflicts with macOS codesign
 app_name = "DataAnonymizer" + ("Lite" if lite_mode else "")
 
 # Icon selection per platform
@@ -150,13 +151,13 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=not IS_MACOS,
+    upx=_upx_enabled,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
-    entitlements_file=None,
+    entitlements_file=None,  # macOS signing uses entitlements.plist externally via build-macos.sh
     icon=icon_path,
 )
 
@@ -166,7 +167,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=not IS_MACOS,
+    upx=_upx_enabled,
     upx_exclude=[],
     name=app_name,
 )
@@ -182,8 +183,8 @@ if IS_MACOS:
         info_plist={
             "CFBundleShortVersionString": APP_VERSION,
             "CFBundleVersion": APP_VERSION,
-            "CFBundleName": "Anonymizer" + (" Lite" if lite_mode else ""),
-            "CFBundleDisplayName": "Data Anonymizer" + (" Lite" if lite_mode else ""),
+            "CFBundleName": "Anonymizer" + _lite_suffix,
+            "CFBundleDisplayName": "Data Anonymizer" + _lite_suffix,
             "NSHumanReadableCopyright": "© 2026 CHENG-I WU. CC BY-NC 4.0.",
             "NSHighResolutionCapable": True,
             "LSUIElement": False,
