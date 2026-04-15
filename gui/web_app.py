@@ -77,18 +77,30 @@ def create_app(upload_dir: str = None) -> Flask:
         upload_dir = tempfile.mkdtemp(prefix="anonymizer_uploads_")
     app.config["UPLOAD_DIR"] = upload_dir
 
-    # In-memory registry: file_id → {name, path, size}
+    # In-memory registry: file_id → {name, path, size, output_path, download_name}
     app.config["FILE_REGISTRY"] = {}
-    app.config["PROCESSED_REGISTRY"] = {}
 
     # Track last request time for auto-shutdown
     app.config["LAST_REQUEST_TIME"] = time.time()
 
     from anonymizer import Anonymizer, get_parser
-    from config_manager import export_config, import_config, load_config, save_config
+    from config_manager import (
+        export_config,
+        import_config,
+        load_config,
+        resolve_logo_template_paths,
+        save_config,
+    )
+    from image_anonymizer import ImageAnonymizer, merge_regions
+    from parsers.image_parser import ImageParser
 
     APP_DIR = _PROJECT_ROOT
     CONFIG_PATH = os.path.join(APP_DIR, "config.json")
+    LOGO_DIR = os.path.join(APP_DIR, "logo_templates")
+    IMAGE_EXTENSIONS = set(ImageParser.EXTENSIONS)
+
+    def _load_runtime_config() -> dict:
+        return resolve_logo_template_paths(load_config(CONFIG_PATH), LOGO_DIR)
 
     def build_download_name(filename: str, output_ext: str = None) -> str:
         base, original_ext = os.path.splitext(filename)
@@ -138,6 +150,8 @@ def create_app(upload_dir: str = None) -> Flask:
                 "name": f.filename,
                 "path": save_path,
                 "size": size,
+                "output_path": None,
+                "download_name": None,
             }
             results.append({"id": file_id, "name": f.filename, "size": size})
 
@@ -156,8 +170,39 @@ def create_app(upload_dir: str = None) -> Flask:
             return jsonify({"error": "找不到檔案"}), 404
 
         file_path = file_info["path"]
-        config = load_config(CONFIG_PATH)
+        config = _load_runtime_config()
         reversible = mode == "reversible"
+
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in IMAGE_EXTENSIONS:
+            parser = ImageParser()
+            img = parser.parse(file_path)
+            if img is None:
+                return jsonify({"error": "無法讀取圖片"}), 400
+
+            img_anon = ImageAnonymizer(config=config, use_ner=use_ner)
+            regions = []
+            regions.extend(img_anon._stage_ocr(img))
+            regions.extend(img_anon._stage_face(img))
+            regions.extend(img_anon._stage_logo(img))
+            merged = merge_regions(regions, iou_threshold=0.3)
+
+            summary = {}
+            for region in merged:
+                key = region.label or region.region_type
+                summary[key] = summary.get(key, 0) + 1
+
+            if merged:
+                anonymized_text = f"偵測到 {len(merged)} 個敏感區域。處理後可下載脫敏圖片。"
+            else:
+                anonymized_text = "未發現敏感資訊。"
+
+            return jsonify({
+                "original": f"圖片檔：{file_info['name']}",
+                "anonymized": anonymized_text,
+                "spans": [],
+                "summary": summary,
+            })
 
         anon = Anonymizer(config=config, session_id=f"preview_{file_id}",
                           use_ner=use_ner, reversible=reversible)
@@ -186,11 +231,6 @@ def create_app(upload_dir: str = None) -> Flask:
             "summary": summary,
         })
 
-    from image_anonymizer import ImageAnonymizer
-    from parsers.image_parser import ImageParser
-
-    IMAGE_EXTENSIONS = set(ImageParser.EXTENSIONS)
-
     @app.route("/api/process", methods=["POST"])
     def process():
         data = request.get_json()
@@ -202,7 +242,7 @@ def create_app(upload_dir: str = None) -> Flask:
             return jsonify({"error": "未選擇任何檔案"}), 400
 
         reversible = mode == "reversible"
-        config = load_config(CONFIG_PATH)
+        config = _load_runtime_config()
 
         def generate():
             text_anon = Anonymizer(config=config, session_id="web_process",
@@ -226,33 +266,32 @@ def create_app(upload_dir: str = None) -> Flask:
 
                 try:
                     if ext in IMAGE_EXTENSIONS:
-                        anon_path, summary = img_anon.anonymize_image(
-                            fpath, output_dir=output_dir, reversible=reversible)
                         target_path = build_output_path(fid, fname)
+                        anon_path, summary = img_anon.anonymize_image(
+                            fpath,
+                            output_dir=os.path.dirname(target_path),
+                            reversible=reversible,
+                        )
                         if anon_path is None:
                             shutil.copy2(fpath, target_path)
                         elif os.path.abspath(anon_path) != os.path.abspath(target_path):
                             shutil.move(anon_path, target_path)
-                        else:
-                            target_path = anon_path
                     else:
                         parser = get_parser(fpath)
-                        preferred_ext = getattr(parser, "OUTPUT_EXTENSION", ext or ".txt") if parser else ext or ".txt"
-                        anon_path, summary = text_anon.anonymize_file(fpath)
-                        if anon_path is None:
+                        if parser is None:
+                            raise ValueError(f"不支援的檔案格式：{ext}")
+                        preferred_ext = getattr(parser, "OUTPUT_EXTENSION", ext or ".txt")
+                        target_path = build_output_path(fid, fname, preferred_ext)
+                        final_output, summary = text_anon.anonymize_file_to_path(fpath, target_path)
+                        if final_output is None:
                             target_path = build_output_path(fid, fname)
                             shutil.copy2(fpath, target_path)
-                        else:
-                            target_path = build_output_path(fid, fname, preferred_ext)
-                            shutil.copy2(anon_path, target_path)
-
-                    download_name = os.path.basename(target_path).split("_", 1)[1]
-                    app.config["PROCESSED_REGISTRY"][fid] = {
-                        "path": target_path,
-                        "download_name": download_name,
-                    }
+                    file_info["output_path"] = target_path
+                    file_info["download_name"] = os.path.basename(target_path).split("_", 1)[1]
                     results.append({"file_id": fid, "name": fname, "output": target_path, "summary": summary})
                 except Exception as e:
+                    file_info["output_path"] = None
+                    file_info["download_name"] = None
                     results.append({"file_id": fid, "name": fname, "output": None, "summary": f"錯誤：{e}"})
 
             yield f"data: {json.dumps({'type': 'done', 'results': results, 'output_dir': output_dir})}\n\n"
@@ -277,7 +316,7 @@ def create_app(upload_dir: str = None) -> Flask:
             return jsonify({"error": "此路徑屬於系統敏感目錄，不允許批次處理"}), 403
 
         reversible = mode == "reversible"
-        config = load_config(CONFIG_PATH)
+        config = _load_runtime_config()
         from config_manager import DEFAULT_FILE_TYPES
         file_types = config.get("file_types") or DEFAULT_FILE_TYPES
 
@@ -295,33 +334,36 @@ def create_app(upload_dir: str = None) -> Flask:
             for idx, fpath in enumerate(files):
                 fname = os.path.basename(fpath)
                 ext = os.path.splitext(fpath)[1].lower()
+                rel = os.path.relpath(fpath, folder)
+                out_path = os.path.join(output_dir, rel)
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 yield f"data: {json.dumps({'type': 'progress', 'current': idx + 1, 'total': total, 'file': fname})}\n\n"
 
                 try:
                     if ext in IMAGE_EXTENSIONS:
                         anon_path, summary = img_anon.anonymize_image(
-                            fpath, output_dir=output_dir, reversible=reversible)
+                            fpath,
+                            output_dir=os.path.dirname(out_path),
+                            reversible=reversible,
+                        )
                         if anon_path is None:
-                            rel = os.path.relpath(fpath, folder)
-                            dest = os.path.join(output_dir, rel)
-                            os.makedirs(os.path.dirname(dest), exist_ok=True)
-                            shutil.copy2(fpath, dest)
+                            shutil.copy2(fpath, out_path)
+                        elif os.path.abspath(anon_path) != os.path.abspath(out_path):
+                            shutil.move(anon_path, out_path)
                         results.append({"name": fname, "summary": summary})
                     else:
                         parser = get_parser(fpath)
-                        output_ext = getattr(parser, "OUTPUT_EXTENSION", ext or ".txt") if parser else ext or ".txt"
-                        anon_path, summary = text_anon.anonymize_file(fpath)
-                        if anon_path:
-                            rel = os.path.relpath(fpath, folder)
-                            rel = os.path.splitext(rel)[0] + output_ext
-                            dest = os.path.join(output_dir, rel)
-                            os.makedirs(os.path.dirname(dest), exist_ok=True)
-                            shutil.copy2(anon_path, dest)
-                        else:
-                            rel = os.path.relpath(fpath, folder)
-                            dest = os.path.join(output_dir, rel)
-                            os.makedirs(os.path.dirname(dest), exist_ok=True)
-                            shutil.copy2(fpath, dest)
+                        if parser is None:
+                            raise ValueError(f"不支援的檔案格式：{ext}")
+                        output_ext = getattr(parser, "OUTPUT_EXTENSION", ext or ".txt")
+                        rel_output_path = os.path.splitext(rel)[0] + output_ext
+                        out_path = os.path.join(output_dir, rel_output_path)
+                        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                        written_path, summary = text_anon.anonymize_file_to_path(fpath, out_path)
+                        if written_path is None:
+                            fallback_out = os.path.join(output_dir, rel)
+                            os.makedirs(os.path.dirname(fallback_out), exist_ok=True)
+                            shutil.copy2(fpath, fallback_out)
                         results.append({"name": fname, "summary": summary})
                 except Exception as e:
                     results.append({"name": fname, "summary": f"錯誤：{e}"})
@@ -333,8 +375,6 @@ def create_app(upload_dir: str = None) -> Flask:
             mimetype="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-
-    LOGO_DIR = os.path.join(APP_DIR, "logo_templates")
 
     @app.route("/api/config")
     def get_config():
@@ -350,9 +390,6 @@ def create_app(upload_dir: str = None) -> Flask:
         f.save(tmp_zip)
         try:
             config, summary = import_config(tmp_zip, APP_DIR)
-            config["logo_templates"] = [
-                os.path.join(LOGO_DIR, lt) for lt in config["logo_templates"]
-            ]
             save_config(config, CONFIG_PATH)
             return jsonify({"summary": summary})
         except ValueError as e:
@@ -368,27 +405,49 @@ def create_app(upload_dir: str = None) -> Flask:
 
     @app.route("/api/download/<file_id>")
     def download_file(file_id):
-        processed = app.config["PROCESSED_REGISTRY"].get(file_id)
-        if not processed:
+        file_info = app.config["FILE_REGISTRY"].get(file_id)
+        if not file_info:
             return jsonify({"error": "找不到檔案"}), 404
-        return send_file(
-            processed["path"],
-            as_attachment=True,
-            download_name=processed["download_name"],
-        )
+        output_path = file_info.get("output_path")
+        if output_path and os.path.isfile(output_path):
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name=file_info.get("download_name") or build_download_name(file_info["name"]),
+            )
+        return jsonify({"error": "尚未處理此檔案"}), 404
 
     @app.route("/api/download-all", methods=["POST"])
     def download_all():
         data = request.get_json()
         file_ids = data.get("file_ids", [])
 
+        downloadable = []
+        for file_id in file_ids:
+            file_info = app.config["FILE_REGISTRY"].get(file_id)
+            if not file_info:
+                continue
+            output_path = file_info.get("output_path")
+            if output_path and os.path.isfile(output_path):
+                download_name = file_info.get("download_name") or build_download_name(file_info["name"])
+                downloadable.append((output_path, download_name))
+
+        if not downloadable:
+            return "", 204
+
         buf = io.BytesIO()
+        used_names = set()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file_id in file_ids:
-                processed = app.config["PROCESSED_REGISTRY"].get(file_id)
-                if not processed:
-                    continue
-                zf.write(processed["path"], processed["download_name"])
+            for full, arcname in downloadable:
+                final_name = arcname
+                if final_name in used_names:
+                    stem, ext = os.path.splitext(arcname)
+                    suffix = 2
+                    while f"{stem}_{suffix}{ext}" in used_names:
+                        suffix += 1
+                    final_name = f"{stem}_{suffix}{ext}"
+                used_names.add(final_name)
+                zf.write(full, final_name)
 
         buf.seek(0)
         if buf.getbuffer().nbytes <= 22:  # Empty zip

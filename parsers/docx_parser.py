@@ -2,7 +2,7 @@ from docx import Document
 
 
 class DocxParser:
-    EXTENSIONS = {'.docx'}
+    EXTENSIONS = {".docx"}
     OUTPUT_EXTENSION = ".docx"
 
     def parse(self, file_path: str) -> str:
@@ -10,6 +10,7 @@ class DocxParser:
             doc = Document(file_path)
         except Exception:
             return ""
+
         parts = []
         for para in doc.paragraphs:
             parts.append(para.text)
@@ -17,7 +18,7 @@ class DocxParser:
             for row in table.rows:
                 for cell in row.cells:
                     parts.append(cell.text)
-        return '\n'.join(parts)
+        return "\n".join(parts)
 
     def anonymize_to_path(self, file_path: str, output_path: str, anonymizer):
         try:
@@ -29,7 +30,7 @@ class DocxParser:
 
         def anonymize_paragraphs(paragraphs):
             for para in paragraphs:
-                anonymized, para_spans = anonymizer._anonymize_text_with_spans(para.text)
+                anonymized, para_spans = anonymizer.anonymize_value(para.text)
                 if para_spans:
                     para.text = anonymized
                     spans.extend(para_spans)
@@ -38,10 +39,8 @@ class DocxParser:
             for table in tables:
                 for row in table.rows:
                     for cell in row.cells:
-                        anonymized, cell_spans = anonymizer._anonymize_text_with_spans(cell.text)
-                        if cell_spans:
-                            cell.text = anonymized
-                            spans.extend(cell_spans)
+                        anonymize_paragraphs(cell.paragraphs)
+                        anonymize_tables(cell.tables)
 
         anonymize_paragraphs(doc.paragraphs)
         anonymize_tables(doc.tables)

@@ -12,23 +12,14 @@ from typing import Any, Dict
 
 from mapping_manager import TMP_ANONYMIZER_DIR
 
-# ---------------------------------------------------------------------------
-# Internal path constants
-# ---------------------------------------------------------------------------
-
 ANONYMIZER_DIR = os.path.expanduser("~/.claude/anonymizer")
 _NORM_ANONYMIZER_DIR = os.path.normpath(ANONYMIZER_DIR)
 _NORM_TMP_DIR = os.path.normpath(TMP_ANONYMIZER_DIR)
 
-# Commands that read file contents and could leak sensitive data
 FILE_READ_COMMANDS = re.compile(
-    r'\b(cat|head|tail|less|more|grep|rg|awk|sed|cut|sort|uniq|strings|xxd|od|bat|view)\b'
+    r"\b(cat|head|tail|less|more|grep|rg|awk|sed|cut|sort|uniq|strings|xxd|od|bat|view)\b"
 )
 
-
-# ---------------------------------------------------------------------------
-# Helper: deny / approve response builders
-# ---------------------------------------------------------------------------
 
 def _deny(reason: str) -> Dict[str, Any]:
     return {
@@ -54,30 +45,18 @@ def _updated_input(new_file_path: str, context: str) -> Dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Internal path checks
-# ---------------------------------------------------------------------------
-
 def _is_internal_file(path: str) -> bool:
-    """Return True if the path is an anonymizer sensitive data file that must not be exposed.
-
-    Only protects config.json, learned_terms.json, and mapping files.
-    Source code (.py) files are NOT protected — Claude needs to read them for development.
-    """
+    """Return True if the path is an anonymizer sensitive data file that must not be exposed."""
     norm = os.path.normpath(os.path.realpath(path)) if os.path.exists(path) else os.path.normpath(path)
 
-    # Protect specific sensitive files within the anonymizer directory
     if norm.startswith(_NORM_ANONYMIZER_DIR):
         basename = os.path.basename(norm)
-        # config.json and learned_terms.json contain sensitive term lists
         if basename in ("config.json", "learned_terms.json"):
             return True
-        # mappings/ directory contains token↔value maps
         mappings_dir = os.path.join(_NORM_ANONYMIZER_DIR, "mappings")
         if norm.startswith(mappings_dir):
             return True
 
-    # /tmp/anonymizer/session_*.json contains sensitive mapping data
     if norm.startswith(_NORM_TMP_DIR):
         basename = os.path.basename(norm)
         if basename.startswith("session_") and basename.endswith(".json"):
@@ -107,41 +86,31 @@ def _has_matching_file_type(path: str, file_types) -> bool:
 def _is_anonymized_temp(path: str) -> bool:
     """Return True if the path is an anonymized temp file under TMP_ANONYMIZER_DIR."""
     norm = os.path.normpath(path)
-    return norm.startswith(_NORM_TMP_DIR + os.sep) and \
-           os.path.basename(norm).startswith("anonymized_")
+    return norm.startswith(_NORM_TMP_DIR + os.sep) and os.path.basename(norm).startswith("anonymized_")
 
-
-# ---------------------------------------------------------------------------
-# Per-tool handlers
-# ---------------------------------------------------------------------------
 
 def _handle_read(tool_input: Dict, config: Dict, use_ner: bool, session_id: str) -> Dict[str, Any]:
     file_path = tool_input.get("file_path", "")
     scan_paths = config.get("scan_paths", [])
     file_types = config.get("file_types", [])
 
-    # 1. Block internal files
     if _is_internal_file(file_path):
         return _deny("此路徑屬於脫敏器內部資料，禁止存取。")
 
-    # 2. If file is in scan_paths AND matching file_type → try to anonymize
     if _is_in_scan_paths(file_path, scan_paths) and _has_matching_file_type(file_path, file_types):
         if not os.path.isfile(file_path):
-            # File doesn't exist yet; just approve
             return _approve()
 
         from anonymizer import Anonymizer
+
         anon = Anonymizer(config=config, session_id=session_id, use_ner=use_ner)
         anon_path, summary = anon.anonymize_file_to_text_temp(file_path)
-
         if anon_path is None:
-            # No PII found
             return _approve()
 
         context = f"注意：此檔案已自動脫敏處理。{summary}"
         return _updated_input(anon_path, context)
 
-    # 3. Otherwise approve
     return _approve()
 
 
@@ -149,19 +118,15 @@ def _handle_edit(tool_input: Dict, config: Dict) -> Dict[str, Any]:
     file_path = tool_input.get("file_path", "")
     scan_paths = config.get("scan_paths", [])
 
-    # 1. Block internal files
     if _is_internal_file(file_path):
         return _deny("此路徑屬於脫敏器內部資料，禁止存取。")
 
-    # 2. If file is in scan_paths → deny
     if _is_in_scan_paths(file_path, scan_paths):
         return _deny("此檔案包含敏感資料，不允許直接編輯")
 
-    # 3. If editing anonymized temp file → approve
     if _is_anonymized_temp(file_path):
         return _approve()
 
-    # 4. Otherwise → approve
     return _approve()
 
 
@@ -169,16 +134,12 @@ def _handle_grep(tool_input: Dict, config: Dict) -> Dict[str, Any]:
     path = tool_input.get("path", "")
     scan_paths = config.get("scan_paths", [])
 
-    # 1. Block internal paths
     if _is_internal_file(path):
         return _deny("此路徑屬於脫敏器內部資料，禁止存取。")
 
-    # 2. If path overlaps scan_paths → deny
     if _is_in_scan_paths(path, scan_paths):
         return _deny("此目錄包含敏感資料，不允許搜尋。")
 
-    # Also deny if a scan_path is a subdirectory of the given path
-    # (i.e., searching a parent that would expose scan paths)
     norm_path = os.path.normpath(path)
     for sp in scan_paths:
         norm_sp = os.path.normpath(sp)
@@ -192,23 +153,15 @@ def _handle_bash(tool_input: Dict, config: Dict) -> Dict[str, Any]:
     command = tool_input.get("command", "")
     scan_paths = config.get("scan_paths", [])
 
-    # 1. Block commands that read sensitive anonymizer data files
-    #    But whitelist: running the anonymizer's own Python scripts (hook invocations,
-    #    setup, tests, etc.) and general development commands (git, pip, pytest)
     anonymizer_dir = os.path.expanduser("~/.claude/anonymizer/")
     if anonymizer_dir in command or ANONYMIZER_DIR in command:
-        # Whitelist: running Python scripts from the anonymizer (hook itself, setup, tests)
         if command.strip().startswith(os.path.join(ANONYMIZER_DIR, ".venv/bin/python")):
-            pass  # allow hook's own execution
+            pass
         elif any(safe in command for safe in ["git ", "pip ", "pip3 ", "pytest", "python3 -m pytest"]):
-            pass  # allow development commands
+            pass
         elif "config.json" in command or "learned_terms" in command or "mappings/" in command:
             return _deny("此指令嘗試存取脫敏器敏感資料，已被攔截。")
-        # Otherwise allow — source code access is fine
 
-    # 2. Any Bash command that references a protected scan_path is denied.
-    #    Bash is too expressive to safely distinguish reads from exfiltration
-    #    or indirect interpreters such as python -c / ruby -e.
     for sp in scan_paths:
         candidates = {
             sp,
@@ -220,7 +173,6 @@ def _handle_bash(tool_input: Dict, config: Dict) -> Dict[str, Any]:
             if candidate and candidate in command:
                 return _deny("此指令嘗試存取受保護的資料夾，已被攔截。")
 
-    # Keep legacy read-command checks as a defense-in-depth fallback.
     if FILE_READ_COMMANDS.search(command):
         for sp in scan_paths:
             sp_stripped = sp.rstrip("/")
@@ -231,47 +183,25 @@ def _handle_bash(tool_input: Dict, config: Dict) -> Dict[str, Any]:
     return _approve()
 
 
-# ---------------------------------------------------------------------------
-# Main router
-# ---------------------------------------------------------------------------
-
 def handle_pretool_use(
     stdin_data: Dict[str, Any],
     config: Dict[str, Any],
     use_ner: bool = True,
 ) -> Dict[str, Any]:
-    """
-    Route a PreToolUse hook request and return the appropriate response dict.
-
-    Parameters
-    ----------
-    stdin_data : dict
-        Parsed JSON from Claude Code's hook stdin.
-    config : dict
-        Anonymizer configuration (scan_paths, file_types, custom_terms, etc.).
-    use_ner : bool
-        Whether to use NER detection (expensive; set False in tests).
-
-    Returns
-    -------
-    dict
-        Empty dict {} for approve, or structured hook response dict.
-    """
+    """Route a PreToolUse hook request and return the appropriate response dict."""
     tool_name = stdin_data.get("tool_name", "")
     tool_input = stdin_data.get("tool_input", {})
     session_id = stdin_data.get("session_id", "") or "hook_router_session"
 
     if tool_name == "Read":
         return _handle_read(tool_input, config, use_ner, session_id)
-    elif tool_name == "Edit":
+    if tool_name == "Edit":
         return _handle_edit(tool_input, config)
-    elif tool_name == "Grep":
+    if tool_name == "Grep":
         return _handle_grep(tool_input, config)
-    elif tool_name == "Bash":
+    if tool_name == "Bash":
         return _handle_bash(tool_input, config)
-    else:
-        # Unknown tool → approve
-        return _approve()
+    return _approve()
 
 
 def main():
@@ -293,7 +223,6 @@ def main():
     result = handle_pretool_use(stdin_data, config)
     if result:
         print(json.dumps(result, ensure_ascii=False))
-    # else: exit 0 with no output (approve)
 
 
 if __name__ == "__main__":

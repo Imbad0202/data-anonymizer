@@ -10,7 +10,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 from anonymizer import Anonymizer, get_parser
 from config_manager import DEFAULT_FILE_TYPES
@@ -19,13 +19,13 @@ from parsers.image_parser import ImageParser
 
 logger = logging.getLogger(__name__)
 
-# Image extensions handled by ImageAnonymizer
 IMAGE_EXTENSIONS = set(ImageParser.EXTENSIONS)
 
 
 @dataclass
 class BatchResult:
     """Summary of a batch processing run."""
+
     total_files: int = 0
     processed_files: int = 0
     skipped_files: int = 0
@@ -67,27 +67,7 @@ def run_batch(
     use_ner: bool = False,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> BatchResult:
-    """Process all matching files in input_dir.
-
-    Parameters
-    ----------
-    input_dir : str
-        Root folder to scan recursively.
-    output_dir : str or None
-        Output folder. If None, defaults to {input_dir}_anonymized.
-    config : dict
-        Anonymizer config dict.
-    reversible : bool
-        True for pseudonymization, False for anonymization.
-    use_ner : bool
-        Whether to use NER detection.
-    progress_callback : callable or None
-        Called with (current_index, total_count, current_file) for progress updates.
-
-    Returns
-    -------
-    BatchResult
-    """
+    """Process all matching files in input_dir."""
     if not os.path.isdir(input_dir):
         raise ValueError(f"輸入資料夾不存在：{input_dir}")
 
@@ -95,17 +75,14 @@ def run_batch(
         output_dir = input_dir.rstrip(os.sep) + "_anonymized"
 
     file_types = config.get("file_types") or DEFAULT_FILE_TYPES
-
     files = _collect_files(input_dir, file_types)
     result = BatchResult(total_files=len(files))
 
     if not files:
         return result
 
-    # Initialize engines
     session_id = f"batch_{os.path.basename(input_dir)}"
-    text_anon = Anonymizer(config=config, session_id=session_id,
-                           use_ner=use_ner, reversible=reversible)
+    text_anon = Anonymizer(config=config, session_id=session_id, use_ner=use_ner, reversible=reversible)
     img_anon = ImageAnonymizer(config=config, use_ner=use_ner)
 
     for idx, file_path in enumerate(files):
@@ -121,22 +98,19 @@ def run_batch(
                 out_path = os.path.join(output_dir, rel_path)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-                # Image pipeline
                 anon_path, summary = img_anon.anonymize_image(
                     file_path,
                     output_dir=os.path.dirname(out_path),
                     reversible=reversible,
                 )
                 if anon_path:
-                    # Move to correct output path if different
                     if os.path.abspath(anon_path) != os.path.abspath(out_path):
                         shutil.move(anon_path, out_path)
                     result.pii_found_files += 1
-                    file_result["detail"] = summary
                 else:
-                    # No PII found — copy original
                     shutil.copy2(file_path, out_path)
-                    file_result["detail"] = summary
+
+                file_result["detail"] = summary
                 result.processed_files += 1
 
             else:
@@ -144,8 +118,6 @@ def run_batch(
                 if parser is None:
                     out_path = os.path.join(output_dir, rel_path)
                     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
-                    # Unsupported — copy as-is
                     shutil.copy2(file_path, out_path)
                     result.skipped_files += 1
                     file_result["status"] = "skipped"
@@ -158,9 +130,8 @@ def run_batch(
                 out_path = os.path.join(output_dir, rel_output_path)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-                anon_path, summary = text_anon.anonymize_file(file_path)
-                if anon_path is not None:
-                    shutil.copy2(anon_path, out_path)
+                written_path, summary = text_anon.anonymize_file_to_path(file_path, out_path)
+                if written_path is not None:
                     result.pii_found_files += 1
                 else:
                     fallback_out = os.path.join(output_dir, rel_path)
@@ -175,7 +146,6 @@ def run_batch(
             result.error_files += 1
             file_result["status"] = "error"
             file_result["detail"] = str(e)
-            # Copy original on error so output is complete
             try:
                 out_path = os.path.join(output_dir, rel_path)
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)

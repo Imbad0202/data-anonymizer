@@ -130,6 +130,23 @@ class TestExportImport:
         with zipfile.ZipFile(zip_path) as zf:
             assert "logo_templates/test_logo.png" in zf.namelist()
 
+    def test_export_normalizes_absolute_logo_paths(self, tmp_path):
+        logo_dir = tmp_path / "logos"
+        logo_dir.mkdir()
+        logo_path = logo_dir / "logo.png"
+        logo_path.write_bytes(b"logo")
+
+        config = create_default_config()
+        config["logo_templates"] = [str(logo_path)]
+
+        zip_path = str(tmp_path / "out.zip")
+        export_config(config, str(logo_dir), zip_path)
+
+        with zipfile.ZipFile(zip_path) as zf:
+            assert "logo_templates/logo.png" in zf.namelist()
+            exported = json.loads(zf.read("config.json").decode("utf-8"))
+            assert exported["logo_templates"] == ["logo.png"]
+
     def test_import_roundtrip(self, tmp_path):
         # Export
         config = create_default_config()

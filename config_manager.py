@@ -127,15 +127,19 @@ def export_config(config: dict, logo_dir: str, output_path: str) -> str:
     if not output_path.endswith(".zip"):
         output_path += ".zip"
 
+    exported_config = dict(config)
+    exported_logos = [os.path.basename(path) for path in config.get("logo_templates", [])]
+    exported_config["logo_templates"] = exported_logos
+
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
         # Write config.json
-        config_json = json.dumps(config, ensure_ascii=False, indent=2)
+        config_json = json.dumps(exported_config, ensure_ascii=False, indent=2)
         zf.writestr("config.json", config_json)
 
         # Bundle logo templates
         if os.path.isdir(logo_dir):
-            for fname in config.get("logo_templates", []):
-                fpath = os.path.join(logo_dir, fname)
+            for raw_path, fname in zip(config.get("logo_templates", []), exported_logos):
+                fpath = raw_path if os.path.isabs(raw_path) else os.path.join(logo_dir, fname)
                 if os.path.isfile(fpath):
                     zf.write(fpath, f"logo_templates/{fname}")
 
@@ -225,3 +229,13 @@ def load_config(config_path: str) -> dict:
         return create_default_config()
     with open(config_path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def resolve_logo_template_paths(config: dict, logo_dir: str) -> dict:
+    """Return a shallow config copy with logo template entries resolved to full paths."""
+    resolved = dict(config)
+    resolved["logo_templates"] = [
+        path if os.path.isabs(path) else os.path.join(logo_dir, path)
+        for path in config.get("logo_templates", [])
+    ]
+    return resolved
