@@ -5,9 +5,7 @@ runtime_hook.py must pick the correct binary name per platform:
 - macOS / Linux: tesseract
 """
 
-import os
 import sys
-import tempfile
 from unittest.mock import patch
 
 
