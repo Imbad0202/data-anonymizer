@@ -110,9 +110,6 @@ def run_batch(
 
     for idx, file_path in enumerate(files):
         rel_path = os.path.relpath(file_path, input_dir)
-        out_path = os.path.join(output_dir, rel_path)
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
         if progress_callback:
             progress_callback(idx, len(files), rel_path)
 
@@ -121,6 +118,9 @@ def run_batch(
 
         try:
             if ext in IMAGE_EXTENSIONS:
+                out_path = os.path.join(output_dir, rel_path)
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
                 # Image pipeline
                 anon_path, summary = img_anon.anonymize_image(
                     file_path,
@@ -140,9 +140,11 @@ def run_batch(
                 result.processed_files += 1
 
             else:
-                # Text pipeline
                 parser = get_parser(file_path)
                 if parser is None:
+                    out_path = os.path.join(output_dir, rel_path)
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
                     # Unsupported — copy as-is
                     shutil.copy2(file_path, out_path)
                     result.skipped_files += 1
@@ -151,16 +153,19 @@ def run_batch(
                     result.file_results.append(file_result)
                     continue
 
-                text = parser.parse(file_path)
+                output_ext = getattr(parser, "OUTPUT_EXTENSION", ext or ".txt")
+                rel_output_path = os.path.splitext(rel_path)[0] + output_ext
+                out_path = os.path.join(output_dir, rel_output_path)
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-                anon_text, summary = text_anon.anonymize_text(text)
-
-                if anon_text != text:
-                    with open(out_path, "w", encoding="utf-8") as f:
-                        f.write(anon_text)
+                anon_path, summary = text_anon.anonymize_file(file_path)
+                if anon_path is not None:
+                    shutil.copy2(anon_path, out_path)
                     result.pii_found_files += 1
                 else:
-                    shutil.copy2(file_path, out_path)
+                    fallback_out = os.path.join(output_dir, rel_path)
+                    os.makedirs(os.path.dirname(fallback_out), exist_ok=True)
+                    shutil.copy2(file_path, fallback_out)
 
                 file_result["detail"] = summary
                 result.processed_files += 1
@@ -172,6 +177,8 @@ def run_batch(
             file_result["detail"] = str(e)
             # Copy original on error so output is complete
             try:
+                out_path = os.path.join(output_dir, rel_path)
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
                 shutil.copy2(file_path, out_path)
             except Exception:
                 pass

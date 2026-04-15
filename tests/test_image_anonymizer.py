@@ -138,6 +138,7 @@ class TestStageOCR:
         with patch("image_anonymizer.pytesseract") as mock_tess:
             mock_tess.image_to_data.return_value = mock_data
             regions = anon._stage_ocr(img)
+            assert mock_tess.image_to_data.call_args.kwargs["output_type"] == mock_tess.Output.DICT
 
         # Should detect "國立台灣大學" as SCHOOL
         assert len(regions) >= 1

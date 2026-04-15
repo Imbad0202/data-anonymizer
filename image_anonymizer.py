@@ -181,13 +181,12 @@ class ImageAnonymizer:
 
         try:
             data = pytesseract.image_to_data(
-                img, lang="chi_tra+eng", output_type=None,
+                img, lang="chi_tra+eng", output_type=pytesseract.Output.DICT,
             )
         except Exception as e:
             logger.warning("Tesseract OCR failed: %s — skipping OCR stage.", e)
             return []
 
-        # When output_type is None, pytesseract returns a dict
         if not isinstance(data, dict):
             return []
 

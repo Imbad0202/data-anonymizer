@@ -336,10 +336,9 @@ class TestE2EFullRoundTrip:
         output_file.write_text(claude_output, encoding="utf-8")
 
         # --- Step 4: PostToolUse restore ---
-        # The session mapping was saved by hook_router's Anonymizer during Step 2.
-        # restore.py loads from the same /tmp/anonymizer directory.
+        # The session mapping was saved under the Claude session id from Step 2.
         write_stdin = {
-            "session_id": "hook_router_session",  # hook_router uses this fixed session_id
+            "session_id": read_stdin["session_id"],
             "tool_name": "Write",
             "tool_input": {"file_path": str(output_file)},
         }
@@ -380,7 +379,7 @@ class TestE2EFullRoundTrip:
 
         # PostToolUse Edit
         edit_stdin = {
-            "session_id": "hook_router_session",
+            "session_id": read_stdin["session_id"],
             "tool_name": "Edit",
             "tool_input": {"file_path": str(edited_file)},
         }

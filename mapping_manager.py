@@ -88,9 +88,9 @@ class MappingManager:
 
         return TOKEN_PATTERN.sub(replace_token, text)
 
-    def register_file_path(self, original_path: str) -> str:
+    def register_file_path(self, original_path: str, extension: str = ".txt") -> str:
         path_hash = hashlib.sha256(original_path.encode("utf-8")).hexdigest()[:16]
-        anon_path = os.path.join(TMP_ANONYMIZER_DIR, f"anonymized_{path_hash}.txt")
+        anon_path = os.path.join(TMP_ANONYMIZER_DIR, f"anonymized_{path_hash}{extension}")
         self._file_paths[anon_path] = original_path
         return anon_path
 
