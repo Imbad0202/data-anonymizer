@@ -33,12 +33,18 @@ if os.path.isfile(os.path.join(_specdir, "gui", "web_app.py")):
 else:
     BASE_DIR = os.getcwd()
 
-# Version (for macOS Info.plist)
-sys.path.insert(0, BASE_DIR)
-try:
-    from updater import __version__ as APP_VERSION
-except Exception:
-    APP_VERSION = "0.0.0"
+# Version (for macOS Info.plist) — read textually to avoid sys.path side effects
+import re as _re
+_updater_path = os.path.join(BASE_DIR, "updater.py")
+APP_VERSION = "0.0.0"
+if os.path.isfile(_updater_path):
+    with open(_updater_path, encoding="utf-8") as _f:
+        _m = _re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', _f.read(), _re.M)
+    if _m:
+        APP_VERSION = _m.group(1)
+    else:
+        sys.stderr.write("WARN: could not parse __version__ from updater.py; using 0.0.0\n")
+del _updater_path
 
 # Data files to bundle
 datas = [
@@ -176,6 +182,8 @@ if IS_MACOS:
         info_plist={
             "CFBundleShortVersionString": APP_VERSION,
             "CFBundleVersion": APP_VERSION,
+            "CFBundleName": "Anonymizer" + (" Lite" if lite_mode else ""),
+            "CFBundleDisplayName": "Data Anonymizer" + (" Lite" if lite_mode else ""),
             "NSHumanReadableCopyright": "© 2026 CHENG-I WU. CC BY-NC 4.0.",
             "NSHighResolutionCapable": True,
             "LSUIElement": False,
