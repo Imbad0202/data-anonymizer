@@ -49,6 +49,12 @@ if os.path.isfile(_version_file):
 datas = [
     (os.path.join(BASE_DIR, "models", "deploy.prototxt"), "models"),
     (os.path.join(BASE_DIR, "models", "res10_300x300_ssd_iter_140000.caffemodel"), "models"),
+    # Repo root doubles as a package `anonymizer` via __init__.py; PyInstaller
+    # does not auto-pick this up because the package name collides with the
+    # sibling `anonymizer.py` module. Ship both files into a pkg subdir so
+    # __init__.py's spec_from_file_location("anonymizer.py") resolves.
+    (os.path.join(BASE_DIR, "__init__.py"), "anonymizer"),
+    (os.path.join(BASE_DIR, "anonymizer.py"), "anonymizer"),
 ]
 
 # Tesseract OCR — bundle path differs per platform
@@ -81,8 +87,11 @@ gui_templates = os.path.join(BASE_DIR, "gui", "templates")
 if os.path.isdir(gui_templates):
     datas.append((gui_templates, os.path.join("gui", "templates")))
 
-# Hidden imports
+# Hidden imports — third-party libs + our top-level modules that PyInstaller
+# does not auto-discover because anonymizer.py lives alongside an anonymizer/
+# package of the same name (PyInstaller picks the package and skips the rest).
 hiddenimports = [
+    # third-party
     "PIL",
     "cv2",
     "numpy",
@@ -91,6 +100,19 @@ hiddenimports = [
     "openpyxl",
     "pptx",
     "flask",
+    # top-level project modules referenced via `from X import ...`
+    "batch",
+    "config_manager",
+    "detectors",
+    "hook_router",
+    "image_anonymizer",
+    "learned_terms_manager",
+    "mapping_manager",
+    "models",
+    "parsers",
+    "parsers.image_parser",
+    "restore",
+    "updater",
 ]
 
 # Exclude NER dependencies in lite mode

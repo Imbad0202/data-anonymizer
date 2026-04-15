@@ -61,12 +61,25 @@ def _is_safe_batch_path(folder: str) -> bool:
     return True
 
 
+def _gui_asset_dir(name: str) -> str:
+    """Resolve gui/static or gui/templates for both dev and frozen builds.
+
+    PyInstaller onedir bundles place data files under sys._MEIPASS at runtime
+    (Resources/ for macOS .app, the app dir for Windows onedir). Fall back to
+    the module's own directory for dev mode.
+    """
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(base, "gui", name)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+
+
 def create_app(upload_dir: str = None) -> Flask:
     """Create and configure the Flask application."""
     app = Flask(
         __name__,
-        static_folder="static",
-        template_folder="templates",
+        static_folder=_gui_asset_dir("static"),
+        template_folder=_gui_asset_dir("templates"),
     )
 
     # Max upload size: 100MB
