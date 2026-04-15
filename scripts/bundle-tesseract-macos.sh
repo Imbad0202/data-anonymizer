@@ -69,7 +69,19 @@ cp "${BREW_PREFIX}/share/tessdata/eng.traineddata" "${TESSDATA_DIR}/"
 cp "${BREW_PREFIX}/share/tessdata/osd.traineddata" "${TESSDATA_DIR}/"
 
 CHI_TRA_URL="https://github.com/tesseract-ocr/tessdata_best/raw/main/chi_tra.traineddata"
-curl -fsSL "${CHI_TRA_URL}" -o "${TESSDATA_DIR}/chi_tra.traineddata"
+# Use Python urllib (system cert bundle) — avoids broken curl caches in
+# conda/anaconda environments that override /usr/bin/curl on $PATH.
+python3.11 -c "
+import ssl, urllib.request
+ctx = ssl.create_default_context()
+with urllib.request.urlopen('${CHI_TRA_URL}', context=ctx) as r, open('${TESSDATA_DIR}/chi_tra.traineddata', 'wb') as f:
+    while True:
+        chunk = r.read(1 << 20)
+        if not chunk:
+            break
+        f.write(chunk)
+print('Downloaded chi_tra.traineddata')
+"
 
 # 5. Smoke test: run bundled tesseract on a throwaway test image
 TEST_IMG="$(mktemp -t tesseract_test.XXXXXX).png"
