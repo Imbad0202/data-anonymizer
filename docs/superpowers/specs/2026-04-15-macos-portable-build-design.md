@@ -100,7 +100,7 @@ build-macos.sh (lite | full)
 1. **Platform-aware datas**：Tesseract bundle 路徑在 macOS 上是 `_internal/tesseract-macos/`（避免與 Windows 的 `_internal/tesseract/` 撞）
 2. **icon 平台分支**：`.ico`（Windows）vs `.icns`（macOS），以 `sys.platform` 判斷
 3. **BUNDLE block 新增**：macOS 需要 `BUNDLE()` 才能產出 `.app`，包含：
-   - `bundle_identifier = 'tw.org.heeact.dataanonymizer'`
+   - `bundle_identifier = 'tw.imbad.dataanonymizer'`
    - `info_plist` dict：包含 `LSUIElement=False`、`NSHighResolutionCapable=True`、`CFBundleShortVersionString` 從 `updater.__version__` 讀
 4. **console=False、windowed=True**：macOS 雙擊 `.app` 不應跳 terminal
 
@@ -237,7 +237,7 @@ BUNDLE(
     coll,
     name=f'{app_name}.app',
     icon=os.path.join(BASE_DIR, 'assets', 'icon.icns'),
-    bundle_identifier='tw.org.heeact.dataanonymizer' + ('.lite' if lite_mode else ''),
+    bundle_identifier='tw.imbad.dataanonymizer' + ('.lite' if lite_mode else ''),
     info_plist={
         'CFBundleShortVersionString': VERSION,
         'CFBundleVersion': VERSION,
@@ -250,7 +250,7 @@ BUNDLE(
 )
 ```
 
-**Bundle identifier** 用 `tw.org.heeact.dataanonymizer`（HEEACT 是用戶雇主，合適 reverse DNS 前綴）；Lite 版加 `.lite` suffix 避免與 Full 版衝突。
+**Bundle identifier** 用 `tw.imbad.dataanonymizer`（個人識別前綴，與工具的個人/雙重用途分發定位一致）；Lite 版加 `.lite` suffix 避免與 Full 版衝突。
 
 ## CI 自動化（Phase 2，本機驗證後執行）
 
