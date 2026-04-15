@@ -63,12 +63,26 @@ fi
 
 echo "=== Phase 2: OpenCV face model ==="
 mkdir -p models
-[[ -f models/deploy.prototxt ]] || curl -fsSL \
+# Use Python urllib (system cert bundle) — see scripts/bundle-tesseract-macos.sh
+# for the rationale: curl on conda-augmented PATH uses a stale cacert.
+download() {
+  local url="$1" dest="$2"
+  python3.11 -c "
+import ssl, urllib.request
+ctx = ssl.create_default_context()
+with urllib.request.urlopen('$url', context=ctx) as r, open('$dest', 'wb') as f:
+    while True:
+        chunk = r.read(1 << 20)
+        if not chunk: break
+        f.write(chunk)
+"
+}
+[[ -f models/deploy.prototxt ]] || download \
   "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt" \
-  -o models/deploy.prototxt
-[[ -f models/res10_300x300_ssd_iter_140000.caffemodel ]] || curl -fsSL \
+  "models/deploy.prototxt"
+[[ -f models/res10_300x300_ssd_iter_140000.caffemodel ]] || download \
   "https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel" \
-  -o models/res10_300x300_ssd_iter_140000.caffemodel
+  "models/res10_300x300_ssd_iter_140000.caffemodel"
 
 echo "=== Phase 3: Tesseract bundle ==="
 scripts/bundle-tesseract-macos.sh
