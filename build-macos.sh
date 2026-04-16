@@ -52,7 +52,12 @@ else
 fi
 
 echo "=== Phase 1: Clean + venv ==="
-rm -rf dist build .venv-build ckip_models
+for d in dist build .venv-build ckip_models; do
+  if [ -d "$d" ]; then
+    chmod -R u+w "$d" 2>/dev/null || true
+    rm -rf "$d"
+  fi
+done
 python3.11 -m venv .venv-build
 source .venv-build/bin/activate
 pip install --upgrade pip pyinstaller >/dev/null
