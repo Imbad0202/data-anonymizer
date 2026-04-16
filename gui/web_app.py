@@ -20,6 +20,7 @@ import webbrowser
 import zipfile
 
 from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
+from werkzeug.utils import secure_filename
 
 # Ensure project root is importable
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -139,7 +140,7 @@ def create_app(upload_dir: str = None) -> Flask:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'"
-        response.headers["Server"] = "DataAnonymizer"
+        del response.headers["Server"]
         return response
 
     # --- Index route ---
@@ -164,7 +165,8 @@ def create_app(upload_dir: str = None) -> Flask:
             if f.filename == "":
                 continue
             file_id = str(uuid.uuid4())
-            save_path = os.path.join(app.config["UPLOAD_DIR"], file_id + "_" + f.filename)
+            safe_name = secure_filename(f.filename) or "untitled"
+            save_path = os.path.join(app.config["UPLOAD_DIR"], file_id + "_" + safe_name)
             f.save(save_path)
             size = os.path.getsize(save_path)
             app.config["FILE_REGISTRY"][file_id] = {
