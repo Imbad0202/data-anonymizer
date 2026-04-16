@@ -134,6 +134,14 @@ def create_app(upload_dir: str = None) -> Flask:
     def update_last_request_time():
         app.config["LAST_REQUEST_TIME"] = time.time()
 
+    @app.after_request
+    def set_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'"
+        response.headers["Server"] = "DataAnonymizer"
+        return response
+
     # --- Index route ---
     @app.route("/")
     def index():
