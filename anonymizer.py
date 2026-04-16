@@ -1,3 +1,4 @@
+import inspect
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -56,6 +57,17 @@ class Anonymizer:
         """Backward-compatible alias used by parser implementations and tests."""
         return self.anonymize_value(text)
 
+    def _parse_file(self, parser, file_path: str) -> str:
+        """Parse a file while applying parser-specific limits when supported."""
+        try:
+            parameters = inspect.signature(parser.parse).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+
+        if "max_pages" in parameters:
+            return parser.parse(file_path, max_pages=self.max_file_pages)
+        return parser.parse(file_path)
+
     def _build_summary(self, spans: List[Span], file_path: Optional[str] = None) -> str:
         if not spans:
             prefix = f"檔案《{os.path.basename(file_path)}》：" if file_path else ""
@@ -90,7 +102,7 @@ class Anonymizer:
         if parser is None:
             return None, f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"
 
-        text = parser.parse(file_path)
+        text = self._parse_file(parser, file_path)
         anonymized, spans = self.anonymize_value(text)
         if not spans:
             return None, self._build_summary([], file_path=file_path)

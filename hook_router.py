@@ -7,6 +7,7 @@ Reads stdin JSON, routes by tool_name, and outputs appropriate hook responses.
 import json
 import os
 import re
+import shlex
 import sys
 from typing import Any, Dict
 
@@ -19,6 +20,9 @@ _NORM_TMP_DIR = os.path.normpath(TMP_ANONYMIZER_DIR)
 FILE_READ_COMMANDS = re.compile(
     r"\b(cat|head|tail|less|more|grep|rg|awk|sed|cut|sort|uniq|strings|xxd|od|bat|view)\b"
 )
+INDIRECT_READ_COMMANDS = re.compile(r"\b(python|python3|python3\.\d+|node|ruby|perl)\b")
+STRING_LITERAL_PATTERN = re.compile(r"""(['"])(?P<value>.*?)(\1)""")
+OPEN_CALL_PATTERN = re.compile(r"""open\(\s*(['"])(?P<value>.*?)(\1)""")
 
 
 def _deny(reason: str) -> Dict[str, Any]:
@@ -47,7 +51,7 @@ def _updated_input(new_file_path: str, context: str) -> Dict[str, Any]:
 
 def _is_internal_file(path: str) -> bool:
     """Return True if the path is an anonymizer sensitive data file that must not be exposed."""
-    norm = os.path.normpath(os.path.realpath(path)) if os.path.exists(path) else os.path.normpath(path)
+    norm = _canonicalize_path(path)
 
     if norm.startswith(_NORM_ANONYMIZER_DIR):
         basename = os.path.basename(norm)
@@ -67,9 +71,9 @@ def _is_internal_file(path: str) -> bool:
 
 def _is_in_scan_paths(path: str, scan_paths) -> bool:
     """Return True if path falls under any configured scan_path."""
-    norm_path = os.path.normpath(path)
+    norm_path = _canonicalize_path(path)
     for sp in scan_paths:
-        norm_sp = os.path.normpath(sp)
+        norm_sp = _canonicalize_path(sp)
         if norm_path == norm_sp or norm_path.startswith(norm_sp + os.sep):
             return True
     return False
@@ -85,8 +89,66 @@ def _has_matching_file_type(path: str, file_types) -> bool:
 
 def _is_anonymized_temp(path: str) -> bool:
     """Return True if the path is an anonymized temp file under TMP_ANONYMIZER_DIR."""
-    norm = os.path.normpath(path)
+    norm = _canonicalize_path(path)
     return norm.startswith(_NORM_TMP_DIR + os.sep) and os.path.basename(norm).startswith("anonymized_")
+
+
+def _canonicalize_path(path: str, cwd: str = None) -> str:
+    """Resolve path to a normalized absolute path, following symlinks when possible."""
+    if not path:
+        return ""
+    if cwd and not os.path.isabs(path):
+        path = os.path.join(cwd, path)
+    expanded = os.path.expanduser(path)
+    return os.path.normpath(os.path.realpath(expanded))
+
+
+def _split_command_segments(command: str):
+    """Split a shell command on common control operators for lightweight inspection."""
+    return [segment.strip() for segment in re.split(r"\s*(?:&&|\|\||;|\n)\s*", command) if segment.strip()]
+
+
+def _extract_cd_target(segment: str):
+    """Return the target path for a simple `cd <path>` segment, if present."""
+    try:
+        tokens = shlex.split(segment, posix=True)
+    except ValueError:
+        return None
+    if len(tokens) >= 2 and tokens[0] == "cd":
+        return tokens[1]
+    return None
+
+
+def _looks_like_path(candidate: str) -> bool:
+    """Heuristic for strings that are likely to encode a filesystem path."""
+    return (
+        os.sep in candidate
+        or candidate.startswith((".", "~"))
+        or candidate.endswith(tuple([".txt", ".md", ".json", ".docx", ".xlsx", ".pptx", ".pdf", ".png", ".jpg", ".jpeg"]))
+    )
+
+
+def _iter_command_path_candidates(segment: str):
+    """Yield path-like values embedded in tokens or quoted strings."""
+    seen = set()
+    try:
+        tokens = shlex.split(segment, posix=True)
+    except ValueError:
+        tokens = segment.split()
+
+    for token in tokens:
+        if token.startswith("-"):
+            continue
+        if _looks_like_path(token) and token not in seen:
+            seen.add(token)
+            yield token
+
+    for pattern in (STRING_LITERAL_PATTERN, OPEN_CALL_PATTERN):
+        for match in pattern.finditer(segment):
+            value = match.group("value")
+            if _looks_like_path(value) and value not in seen:
+                seen.add(value)
+                yield value
 
 
 def _handle_read(tool_input: Dict, config: Dict, use_ner: bool, session_id: str) -> Dict[str, Any]:
@@ -140,9 +202,9 @@ def _handle_grep(tool_input: Dict, config: Dict) -> Dict[str, Any]:
     if _is_in_scan_paths(path, scan_paths):
         return _deny("此目錄包含敏感資料，不允許搜尋。")
 
-    norm_path = os.path.normpath(path)
+    norm_path = _canonicalize_path(path)
     for sp in scan_paths:
-        norm_sp = os.path.normpath(sp)
+        norm_sp = _canonicalize_path(sp)
         if norm_sp.startswith(norm_path + os.sep) or norm_sp == norm_path:
             return _deny("此目錄包含敏感資料，不允許搜尋。")
 
@@ -162,22 +224,24 @@ def _handle_bash(tool_input: Dict, config: Dict) -> Dict[str, Any]:
         elif "config.json" in command or "learned_terms" in command or "mappings/" in command:
             return _deny("此指令嘗試存取脫敏器敏感資料，已被攔截。")
 
-    for sp in scan_paths:
-        candidates = {
-            sp,
-            sp.rstrip("/\\"),
-            os.path.normpath(sp),
-            os.path.realpath(sp),
-        }
-        for candidate in candidates:
-            if candidate and candidate in command:
+    current_cwd = os.getcwd()
+    for segment in _split_command_segments(command):
+        cd_target = _extract_cd_target(segment)
+        if cd_target is not None:
+            resolved_cd = _canonicalize_path(cd_target, cwd=current_cwd)
+            if _is_in_scan_paths(resolved_cd, scan_paths):
                 return _deny("此指令嘗試存取受保護的資料夾，已被攔截。")
+            current_cwd = resolved_cd
+            continue
 
-    if FILE_READ_COMMANDS.search(command):
-        for sp in scan_paths:
-            sp_stripped = sp.rstrip("/")
-            sp_with_slash = sp if sp.endswith("/") else sp + "/"
-            if sp_stripped in command or sp_with_slash in command:
+        if _is_in_scan_paths(current_cwd, scan_paths) and (
+            FILE_READ_COMMANDS.search(segment) or INDIRECT_READ_COMMANDS.search(segment)
+        ):
+            return _deny("此指令嘗試讀取受保護的資料夾，已被攔截。")
+
+        for candidate in _iter_command_path_candidates(segment):
+            resolved_candidate = _canonicalize_path(candidate, cwd=current_cwd)
+            if _is_in_scan_paths(resolved_candidate, scan_paths):
                 return _deny("此指令嘗試讀取受保護的資料夾，已被攔截。")
 
     return _approve()

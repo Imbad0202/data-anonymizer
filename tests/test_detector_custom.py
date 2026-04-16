@@ -37,6 +37,19 @@ class TestCustomDetector:
         spans = det.detect("FAIR research")
         assert len(spans) == 0
 
+    def test_short_cjk_term_matches_inside_sentence(self):
+        config = {"schools": ["台大"]}
+        det = CustomDetector(config, substring_match=True)
+        spans = det.detect("我就讀台大，也做研究")
+        assert any(s.text == "台大" for s in spans)
+
+    def test_substring_match_flag_changes_embedded_ascii_case(self):
+        config = {"schools": ["國立OO大學"]}
+        det_substring = CustomDetector(config, substring_match=True)
+        det_bounded = CustomDetector(config, substring_match=False)
+        assert len(det_substring.detect("abc國立OO大學xyz")) == 1
+        assert det_bounded.detect("abc國立OO大學xyz") == []
+
     def test_no_match(self):
         spans = self.detector.detect("今天天氣很好")
         assert len(spans) == 0

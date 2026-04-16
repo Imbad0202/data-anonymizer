@@ -27,6 +27,31 @@ class TestHookRouter:
         assert result["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
         os.unlink(test_file)
 
+    def test_read_sensitive_file_via_symlink_is_still_protected(self):
+        test_file = "/tmp/test_scan/test.md"
+        alias_dir = "/tmp/test_scan_alias"
+        with open(test_file, 'w') as f:
+            f.write("國立OO大學的報告")
+
+        try:
+            if os.path.lexists(alias_dir):
+                os.unlink(alias_dir)
+            os.symlink("/tmp/test_scan", alias_dir)
+        except (OSError, NotImplementedError):
+            os.unlink(test_file)
+            pytest.skip("symlink unavailable in this environment")
+
+        try:
+            aliased_file = os.path.join(alias_dir, "test.md")
+            stdin_data = {"session_id": "test_session", "tool_name": "Read", "tool_input": {"file_path": aliased_file}}
+            result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+            assert "updatedInput" in result["hookSpecificOutput"]
+        finally:
+            if os.path.lexists(alias_dir):
+                os.unlink(alias_dir)
+            if os.path.exists(test_file):
+                os.unlink(test_file)
+
     def test_read_non_sensitive_path_approves(self):
         stdin_data = {"session_id": "test_session", "tool_name": "Read", "tool_input": {"file_path": "/Users/imbad/other.md"}}
         result = handle_pretool_use(stdin_data, self.config, use_ner=False)
@@ -64,6 +89,18 @@ class TestHookRouter:
 
     def test_bash_python_reader_denied(self):
         cmd = 'python3 -c "print(open(\'/tmp/test_scan/test.md\').read())"'
+        stdin_data = {"session_id": "test_session", "tool_name": "Bash", "tool_input": {"command": cmd}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_bash_relative_reader_after_cd_denied(self):
+        cmd = "cd /tmp && cat ./test_scan/test.md"
+        stdin_data = {"session_id": "test_session", "tool_name": "Bash", "tool_input": {"command": cmd}}
+        result = handle_pretool_use(stdin_data, self.config, use_ner=False)
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_bash_relative_python_open_after_cd_denied(self):
+        cmd = 'cd /tmp && python3 -c "print(open(\'./test_scan/test.md\').read())"'
         stdin_data = {"session_id": "test_session", "tool_name": "Bash", "tool_input": {"command": cmd}}
         result = handle_pretool_use(stdin_data, self.config, use_ner=False)
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"

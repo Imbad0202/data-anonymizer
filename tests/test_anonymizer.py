@@ -1,6 +1,7 @@
 import pytest
 import tempfile
 import os
+import anonymizer as anonymizer_module
 from anonymizer import Anonymizer
 
 
@@ -99,3 +100,27 @@ class TestAnonymizer:
         assert "__ANON:SCHOOL_001__" in result
         assert "__ANON:DEPT_001__" in result
         assert "和" in result
+
+    def test_anonymize_file_to_text_temp_respects_max_file_pages(self, monkeypatch):
+        class FakePdfParser:
+            def __init__(self):
+                self.calls = []
+
+            def parse(self, file_path, max_pages=50):
+                self.calls.append(max_pages)
+                return "電話 0912345678"
+
+        parser = FakePdfParser()
+        monkeypatch.setattr(anonymizer_module, "get_parser", lambda _path: parser)
+
+        config = dict(self.config)
+        config["max_file_pages"] = 3
+        anon = Anonymizer(config=config, session_id="test_pdf_limit", use_ner=False)
+
+        anon_path, _summary = anon.anonymize_file_to_text_temp("/tmp/example.pdf")
+        try:
+            assert parser.calls == [3]
+            assert anon_path is not None
+        finally:
+            if anon_path and os.path.exists(anon_path):
+                os.unlink(anon_path)

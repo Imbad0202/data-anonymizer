@@ -224,7 +224,7 @@ def create_app(upload_dir: str = None) -> Flask:
         if parser is None:
             return jsonify({"error": f"不支援的檔案格式：{os.path.splitext(file_path)[1]}"}), 400
 
-        text = parser.parse(file_path)
+        text = anon._parse_file(parser, file_path)
         spans = anon._collect_spans(text)
         anonymized = anon._apply_spans(text, spans) if spans else text
 

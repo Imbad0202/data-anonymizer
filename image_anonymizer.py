@@ -34,10 +34,12 @@ import cv2
 import numpy as np
 from PIL import Image, ImageFilter
 
+_PYTESSERACT_IMPORT_ERROR = None
 try:
     import pytesseract
-except ImportError:
+except Exception as exc:
     pytesseract = None  # type: ignore
+    _PYTESSERACT_IMPORT_ERROR = str(exc)
 
 from detectors import build_detectors, collect_spans
 from PIL import ImageDraw
@@ -176,7 +178,10 @@ class ImageAnonymizer:
     def _stage_ocr(self, img: Image.Image) -> List[ImageRegion]:
         """Run Tesseract OCR and detect PII in extracted text."""
         if pytesseract is None:
-            logger.warning("pytesseract not installed — skipping OCR stage.")
+            if _PYTESSERACT_IMPORT_ERROR:
+                logger.warning("pytesseract unavailable (%s) — skipping OCR stage.", _PYTESSERACT_IMPORT_ERROR)
+            else:
+                logger.warning("pytesseract not installed — skipping OCR stage.")
             return []
 
         try:
