@@ -1,10 +1,13 @@
 import pytest
-from detectors.ner import NERDetector
+from detectors.ner import NERDetector, get_ner_backend_error, ner_backend_available
 
 
 class TestNERDetector:
     @pytest.fixture(scope="class")
     def detector(self):
+        if not ner_backend_available(probe=True):
+            reason = get_ner_backend_error() or "unknown backend error"
+            pytest.skip(f"NER backend unavailable: {reason}")
         return NERDetector()
 
     def test_detects_person_name(self, detector):

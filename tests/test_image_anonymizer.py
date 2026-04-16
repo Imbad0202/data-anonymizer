@@ -6,6 +6,8 @@ region merging, and redaction (blur/black fill).
 """
 
 import os
+import builtins
+import importlib.util
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
@@ -115,6 +117,26 @@ class TestMergeRegions:
 # ---------------------------------------------------------------------------
 
 class TestStageOCR:
+    def test_import_survives_optional_pytesseract_failure(self, monkeypatch):
+        """Import-time pytesseract failures should degrade to OCR-off, not crash the module."""
+        real_import = builtins.__import__
+        module_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "image_anonymizer.py")
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "pytesseract":
+                raise ValueError("broken optional dependency")
+            return real_import(name, globals, locals, fromlist, level)
+
+        module_name = "image_anonymizer_optional_import_test"
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        module = importlib.util.module_from_spec(spec)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        spec.loader.exec_module(module)
+
+        assert module.pytesseract is None
+        assert module._PYTESSERACT_IMPORT_ERROR == "broken optional dependency"
+
     def test_ocr_with_mock_tesseract(self):
         """Test OCR stage logic with mocked pytesseract output."""
         config = {

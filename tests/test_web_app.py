@@ -8,6 +8,8 @@ import zipfile
 
 import pytest
 from PIL import Image
+import anonymizer as anonymizer_module
+import gui.web_app as web_app_module
 
 # Ensure project root is on path
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -132,6 +134,50 @@ class TestPreview:
         data = json.loads(resp.data)
         assert data["original"].startswith("圖片檔：")
         assert "summary" in data
+
+    def test_preview_pdf_respects_max_file_pages(self, monkeypatch, tmp_path):
+        class FakePdfParser:
+            def __init__(self):
+                self.calls = []
+
+            def parse(self, file_path, max_pages=50):
+                self.calls.append(max_pages)
+                return "電話 0912345678"
+
+        parser = FakePdfParser()
+        monkeypatch.setattr(anonymizer_module, "get_parser", lambda _path: parser)
+        monkeypatch.setattr(web_app_module, "_PROJECT_ROOT", str(tmp_path))
+
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "version": 1,
+            "custom_terms": {},
+            "file_types": [".pdf"],
+            "logo_templates": [],
+            "substring_match": True,
+            "max_file_pages": 3,
+        }), encoding="utf-8")
+
+        upload_dir = tmp_path / "uploads"
+        upload_dir.mkdir()
+        app = create_app(upload_dir=str(upload_dir))
+        app.config["TESTING"] = True
+
+        with app.test_client() as test_client:
+            fake_pdf = tmp_path / "sample.pdf"
+            fake_pdf.write_bytes(b"%PDF-1.4\n%fake\n")
+
+            with open(fake_pdf, "rb") as f:
+                resp = test_client.post("/api/upload", data={"files": (f, "sample.pdf")},
+                                        content_type="multipart/form-data")
+            file_id = json.loads(resp.data)["files"][0]["id"]
+
+            resp = test_client.post("/api/preview",
+                                    data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
+                                    content_type="application/json")
+
+        assert resp.status_code == 200
+        assert parser.calls == [3]
 
 
 class TestProcess:
