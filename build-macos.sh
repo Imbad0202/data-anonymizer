@@ -54,6 +54,7 @@ fi
 echo "=== Phase 1: Clean + venv ==="
 for d in dist build .venv-build ckip_models; do
   if [ -d "$d" ]; then
+    xattr -cr "$d" 2>/dev/null || true
     chmod -R u+w "$d" 2>/dev/null || true
     rm -rf "$d"
   fi
