@@ -50,7 +50,7 @@ def _get_chunker():
 
             local_model = os.environ.get("CKIP_MODEL_DIR")
             if local_model and os.path.isdir(local_model):
-                _ner_chunker = CkipNerChunker(model=local_model)
+                _ner_chunker = CkipNerChunker(model_name=local_model)
             else:
                 _ner_chunker = CkipNerChunker(model="bert-base")
         except Exception as exc:
