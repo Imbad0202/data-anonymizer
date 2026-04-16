@@ -29,10 +29,13 @@ def _tesseract_subdir() -> str:
     return "tesseract"
 
 
-# When frozen (PyInstaller), _MEIPASS points to the temp extraction dir (onefile)
-# or the app directory (onedir). For onedir, use the executable's directory.
+# When frozen (PyInstaller), _MEIPASS points to the data directory:
+# - onefile: temp extraction dir
+# - onedir macOS .app: Contents/Resources/
+# - onedir Windows/Linux: same as executable dir
+# Fall back to executable dir for compatibility with older PyInstaller builds.
 if getattr(sys, "frozen", False):
-    BASE_DIR = os.path.dirname(sys.executable)
+    BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 

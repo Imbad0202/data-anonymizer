@@ -111,7 +111,13 @@ class TestAnonymizer:
                 return "電話 0912345678"
 
         parser = FakePdfParser()
-        monkeypatch.setattr(anonymizer_module, "get_parser", lambda _path: parser)
+        # Patch get_parser in the actual globals dict used by Anonymizer methods.
+        # When pytest imports anonymizer as a package (__init__.py), importlib
+        # loads anonymizer.py into a separate _core module. Anonymizer's method
+        # globals point to _core, not the package namespace, so we must patch
+        # the method's own globals to intercept the call.
+        target = Anonymizer.anonymize_file_to_text_temp.__globals__
+        monkeypatch.setitem(target, "get_parser", lambda _path: parser)
 
         config = dict(self.config)
         config["max_file_pages"] = 3
