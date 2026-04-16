@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import List, Optional
 
 from models import Span
@@ -75,6 +76,10 @@ def ner_backend_available(probe: bool = False) -> bool:
 
 
 class NERDetector:
+    # Texts longer than this are split into lines for better recall on
+    # tabular content (e.g. xlsx cells joined by newlines).
+    _CHUNK_THRESHOLD = 512
+
     def detect(self, text: str) -> List[Span]:
         if not text:
             return []
@@ -84,6 +89,11 @@ class NERDetector:
             _warn_backend_unavailable()
             return []
 
+        if len(text) > self._CHUNK_THRESHOLD and "\n" in text:
+            return self._detect_chunked(text, chunker)
+        return self._detect_single(text, chunker)
+
+    def _detect_single(self, text: str, chunker) -> List[Span]:
         try:
             ner_results = chunker([text], batch_size=256, show_progress=False)
         except Exception as exc:
@@ -91,16 +101,64 @@ class NERDetector:
             _warn_backend_unavailable()
             return []
 
+        return self._extract_spans(text, ner_results[0])
+
+    def _detect_chunked(self, text: str, chunker) -> List[Span]:
+        """Split text on newlines and batch-detect for better NER recall."""
+        lines = text.split("\n")
+        offsets = []
+        non_empty_lines = []
+        pos = 0
+        for line in lines:
+            if line.strip():
+                offsets.append(pos)
+                non_empty_lines.append(line)
+            pos += len(line) + 1  # +1 for the \n
+
+        if not non_empty_lines:
+            return []
+
+        try:
+            ner_results = chunker(non_empty_lines, batch_size=256, show_progress=False)
+        except Exception as exc:
+            _set_backend_error(exc)
+            _warn_backend_unavailable()
+            return []
+
+        all_spans: List[Span] = []
+        for line_offset, line_text, entities in zip(offsets, non_empty_lines, ner_results):
+            for span in self._extract_spans(line_text, entities):
+                all_spans.append(Span(
+                    start=span.start + line_offset,
+                    end=span.end + line_offset,
+                    text=span.text,
+                    category=span.category,
+                    token="",
+                    confidence=span.confidence,
+                    source="ner",
+                ))
+
+        all_spans.sort(key=lambda s: s.start)
+        return all_spans
+
+    # Patterns that CKIP misclassifies as PERSON (e.g. time ranges "03-04")
+    _FALSE_PERSON = re.compile(r"^\s*\d{1,2}[-–]\d{1,2}\s*$")
+
+    @classmethod
+    def _extract_spans(cls, text: str, entities) -> List[Span]:
         spans: List[Span] = []
         used_positions: set = set()
 
-        for entity in ner_results[0]:
+        for entity in entities:
             ner_tag = entity.ner
             if ner_tag not in _TAG_MAP:
                 continue
 
             word = entity.word
             category = _TAG_MAP[ner_tag]
+
+            if category == "PERSON" and cls._FALSE_PERSON.match(word):
+                continue
 
             # Find first unused occurrence to handle duplicate entities correctly
             search_start = 0
@@ -122,5 +180,4 @@ class NERDetector:
                     break
                 search_start = pos + 1
 
-        spans.sort(key=lambda s: s.start)
         return spans
