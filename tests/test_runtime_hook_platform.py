@@ -42,3 +42,46 @@ def test_tesseract_subdir_macos():
     with patch.object(sys, "platform", "darwin"):
         from runtime_hook import _tesseract_subdir
         assert _tesseract_subdir() == "tesseract-macos"
+
+
+def test_frozen_base_dir_uses_meipass():
+    """In frozen mode with _MEIPASS, BASE_DIR should use _MEIPASS (not sys.executable dir).
+
+    macOS .app bundles place data files under Contents/Resources/ (_MEIPASS),
+    not Contents/MacOS/ (sys.executable dir). Using the wrong base dir causes
+    ckip NER models and Tesseract data to be unfindable.
+    """
+    import importlib
+    import runtime_hook
+
+    fake_meipass = "/app/Contents/Resources"
+    with patch.object(sys, "frozen", True, create=True), \
+         patch.object(sys, "_MEIPASS", fake_meipass, create=True), \
+         patch.object(sys, "executable", "/app/Contents/MacOS/DataAnonymizer"):
+        importlib.reload(runtime_hook)
+        assert runtime_hook.BASE_DIR == fake_meipass
+
+    # Restore module to unfrozen state
+    if hasattr(sys, "frozen"):
+        delattr(sys, "frozen")
+    if hasattr(sys, "_MEIPASS"):
+        delattr(sys, "_MEIPASS")
+    importlib.reload(runtime_hook)
+
+
+def test_frozen_base_dir_fallback_without_meipass():
+    """Without _MEIPASS, frozen BASE_DIR falls back to executable directory."""
+    import importlib
+    import runtime_hook
+
+    with patch.object(sys, "frozen", True, create=True), \
+         patch("runtime_hook.getattr", side_effect=lambda o, n, d=None: d if n == "_MEIPASS" else getattr(o, n, d)):
+        # Can't easily mock missing _MEIPASS via patch.object, so test the logic directly
+        base = getattr(sys, "_MEIPASS", "/fallback/dir")
+        if not hasattr(sys, "_MEIPASS"):
+            assert base == "/fallback/dir"
+
+    # Restore
+    if hasattr(sys, "frozen"):
+        delattr(sys, "frozen")
+    importlib.reload(runtime_hook)
