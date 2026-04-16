@@ -110,7 +110,12 @@ hiddenimports = [
     "mapping_manager",
     "models",
     "parsers",
+    "parsers.docx_parser",
     "parsers.image_parser",
+    "parsers.pdf_parser",
+    "parsers.pptx_parser",
+    "parsers.text",
+    "parsers.xlsx_parser",
     "restore",
     "updater",
 ]
