@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-04-17
+
+### Added
+- Chunked NER detection: text longer than 512 characters is split into line-based batches before sending to CKIP, improving person-name recall from 0 to 37 on real xlsx data
+- False positive filter for NER: filters out time-range strings (e.g. "03-04") misidentified as PERSON entities
+- macOS CI workflow (`build-macos.yml`): tag-push triggers codesign + notarize + release for both Full and Lite builds
+
+### Fixed
+- macOS .app bundle: `runtime_hook.py` now uses `sys._MEIPASS` instead of `sys.executable` dirname, fixing data file resolution in `Contents/Resources/`
+- CKIP NER model loading: changed `model=path` to `model_name=path`, fixing KeyError in `_get_model_name()`
+- Test `test_anonymize_file_to_text_temp_respects_max_file_pages`: fixed monkeypatch targeting wrong namespace due to `__init__.py` importlib re-export
+
 ## [2.2.1] - 2026-04-15
 
 ### Fixed
@@ -105,6 +117,7 @@ All notable changes to this project will be documented in this file.
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| 2.3.0 | 2026-04-17 | Chunked NER detection, macOS .app bundle fixes, macOS CI workflow |
 | 2.2.1 | 2026-04-15 | Output path fixes, hook restore/session fix, OCR repair, config export normalization |
 | 2.2.0 | 2026-04-04 | Security hardening, docs overhaul, config schema fix, CC BY-NC 4.0 |
 | 2.1.0 | 2026-03-29 | Web UI (Flask), design system, embedded fonts |

@@ -229,7 +229,7 @@ gui/                   # Flask Web UI
   web_app.py           # Flask 後端 + API
   templates/           # HTML 模板
   static/              # CSS、JS、字型
-tests/                 # 測試（175 tests）
+tests/                 # 測試（196 tests）
 anonymizer.spec        # PyInstaller 打包規格
 installer.iss          # Inno Setup 安裝程式腳本
 .github/workflows/     # CI/CD

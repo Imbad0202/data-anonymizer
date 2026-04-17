@@ -49,7 +49,7 @@ models.py           # Span model + resolver
 detectors/          # 三層偵測（custom, regex, ner）
 parsers/            # 格式解析（text, docx, xlsx, pptx, pdf, image）
 gui/                # Flask Web UI（web_app.py + static/ + templates/）
-tests/              # 175 tests
+tests/              # 196 tests
 ```
 
 ## Development Commands
@@ -91,10 +91,12 @@ python3 -m venv .venv
 
 ## CI/CD
 
-- `.github/workflows/build-windows.yml`：推送版本 tag（`v*`）觸發 Windows 安裝程式建置
+- 推送版本 tag（`v*`）觸發雙平台建置：
+  - `.github/workflows/build-windows.yml`：Windows Portable zip
+  - `.github/workflows/build-macos.yml`：macOS .app bundle（codesign + notarize）
 - 產出 Full（含 NER，~2-3GB）和 Lite（僅 custom + regex，~150-250MB）兩版本
 - PyInstaller 打包規格：`anonymizer.spec`
-- Inno Setup 安裝程式：`installer.iss`（Full）、`installer-lite.iss`（Lite）
+- 本機 macOS 建置：`build-macos.sh [lite|full]`
 
 ## License
 

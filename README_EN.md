@@ -209,7 +209,7 @@ Two editions are built:
 .venv/bin/python -m pytest -v
 ```
 
-175 tests currently passing.
+196 tests currently passing.
 
 ## Project Structure
 
@@ -229,7 +229,7 @@ gui/                   # Flask Web UI
   web_app.py           # Flask backend + API
   templates/           # HTML templates
   static/              # CSS, JS, fonts
-tests/                 # Tests (175 tests)
+tests/                 # Tests (196 tests)
 anonymizer.spec        # PyInstaller build spec
 installer.iss          # Inno Setup installer script
 .github/workflows/     # CI/CD
