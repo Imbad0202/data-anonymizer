@@ -5,6 +5,11 @@ mappings/persistent.json
 __pycache__/
 *.pyc
 .venv/
+.venv-build/
 ckip_models/
 ckip_model_cache/
 _internal/
+
+# PyInstaller / build artifacts
+build/
+dist/
