@@ -93,7 +93,19 @@ Once configured, Claude Code will automatically anonymize files under `scan_path
 .venv/bin/python gui/web_app.py
 ```
 
-Or download the Windows installer from [GitHub Releases](https://github.com/Imbad0202/data-anonymizer/releases).
+Or download a pre-built bundle from [GitHub Releases](https://github.com/Imbad0202/data-anonymizer/releases):
+
+- **macOS (Apple Silicon)**: `DataAnonymizer-<version>-macOS-arm64.zip` (Full) or `DataAnonymizerLite-<version>-macOS-arm64.zip` (Lite)
+- **Windows**: `DataAnonymizer-<version>-Portable.zip` (Full) or `DataAnonymizerLite-<version>-Portable.zip` (Lite)
+
+#### macOS first launch: "cannot be opened (-47)"
+
+Safari attaches a quarantine attribute on download, and LaunchServices occasionally rejects the bundle even when it is fully codesigned, notarized, and stapled. Run this in Terminal to clear it:
+
+```bash
+xattr -dr com.apple.quarantine /path/to/DataAnonymizer.app
+open /path/to/DataAnonymizer.app
+```
 
 ### As a Python Module
 

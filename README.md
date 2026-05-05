@@ -93,7 +93,19 @@ python3 -m venv .venv
 .venv/bin/python gui/web_app.py
 ```
 
-或下載 [GitHub Releases](https://github.com/Imbad0202/data-anonymizer/releases) 的 Windows 安裝程式。
+或從 [GitHub Releases](https://github.com/Imbad0202/data-anonymizer/releases) 下載打包版本：
+
+- **macOS（Apple Silicon）**：`DataAnonymizer-<version>-macOS-arm64.zip`（Full）或 `DataAnonymizerLite-<version>-macOS-arm64.zip`（Lite）
+- **Windows**：`DataAnonymizer-<version>-Portable.zip`（Full）或 `DataAnonymizerLite-<version>-Portable.zip`（Lite）
+
+#### macOS 首次開啟：「無法打開應用程式 -47」
+
+Safari 下載時會在 `.app` 上加 quarantine 屬性，部分情況下 LaunchServices 解析會失敗（即使已 codesign + notarize + staple）。在 Terminal 執行以下指令解除即可：
+
+```bash
+xattr -dr com.apple.quarantine /path/to/DataAnonymizer.app
+open /path/to/DataAnonymizer.app
+```
 
 ### 作為 Python 模組使用
 
