@@ -73,6 +73,86 @@ class TestUpload:
                            content_type="multipart/form-data")
         assert resp.status_code == 400
 
+    def test_upload_cjk_filename_preserves_extension(self, client, tmp_path):
+        test_file = tmp_path / "cjk.txt"
+        test_file.write_text("hi", encoding="utf-8")
+        with open(test_file, "rb") as f:
+            resp = client.post("/api/upload",
+                               data={"files": (f, "大同大學.pdf")},
+                               content_type="multipart/form-data")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        file_id = data["files"][0]["id"]
+        saved_path = client.application.config["FILE_REGISTRY"][file_id]["path"]
+        assert saved_path.endswith(".pdf"), f"extension lost: {saved_path}"
+        assert data["files"][0]["name"] == "大同大學.pdf"
+
+    def test_upload_cjk_filename_preview_not_unsupported(self, client, tmp_path):
+        """End-to-end: a CJK-named text file must reach the parser, not bounce off
+        with '不支援的檔案格式'."""
+        file_id = _upload_file(client, tmp_path, "病歷紀錄.txt",
+                                     "張三的電話 0912345678")
+        resp = client.post("/api/preview",
+                           data=json.dumps({"file_id": file_id, "mode": "reversible", "use_ner": False}),
+                           content_type="application/json")
+        assert resp.status_code == 200, resp.data
+        data = json.loads(resp.data)
+        assert "不支援的檔案格式" not in (data.get("error") or "")
+        assert data["summary"].get("PHONE", 0) > 0
+
+    def test_upload_path_traversal_in_filename_is_contained(self, client, tmp_path):
+        """A multipart filename with ../ must not let the saved path escape
+        UPLOAD_DIR. Display name in the registry may stay raw for the UI."""
+        test_file = tmp_path / "evil.txt"
+        test_file.write_text("hi", encoding="utf-8")
+        with open(test_file, "rb") as f:
+            resp = client.post("/api/upload",
+                               data={"files": (f, "../../etc/passwd.pdf")},
+                               content_type="multipart/form-data")
+        assert resp.status_code == 200
+        file_id = json.loads(resp.data)["files"][0]["id"]
+        registry = client.application.config["FILE_REGISTRY"]
+        saved_path = registry[file_id]["path"]
+        upload_dir = client.application.config["UPLOAD_DIR"]
+        assert os.path.commonpath([os.path.realpath(saved_path),
+                                    os.path.realpath(upload_dir)]) \
+               == os.path.realpath(upload_dir)
+        basename = os.path.basename(saved_path)
+        assert ".." not in basename and "/" not in basename
+        assert basename.endswith(".pdf")
+
+    def test_safe_fs_name_scrubs_traversal_for_download(self, tmp_path):
+        """build_download_name must not pass through path separators or ..,
+        otherwise zip arcnames in /api/download-all are zip-slip vulnerable."""
+        from gui.web_app import create_app
+        app = create_app(upload_dir=str(tmp_path))
+        # The helpers are closures — exercise them via the registered view funcs.
+        # Easiest path: hit download-all with a fake registry entry whose name is
+        # malicious; if name leaks into arcname unsanitized, zipfile will accept it.
+        import io, zipfile
+        fake_id = "abc"
+        out_file = tmp_path / "out.pdf"
+        out_file.write_bytes(b"%PDF-1.4 fake\n")
+        app.config["FILE_REGISTRY"][fake_id] = {
+            "name": "../../etc/passwd.pdf",
+            "path": str(out_file),
+            "size": 14,
+            "output_path": str(out_file),
+            "download_name": None,
+        }
+        with app.test_client() as c:
+            resp = c.post("/api/download-all",
+                          data=json.dumps({"file_ids": [fake_id]}),
+                          content_type="application/json")
+        assert resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(resp.data)) as zf:
+            names = zf.namelist()
+        assert len(names) == 1
+        arc = names[0]
+        assert ".." not in arc
+        assert "/" not in arc and "\\" not in arc
+        assert arc.endswith(".pdf")
+
 
 def _upload_file(client, tmp_path, filename, content):
     """Helper: upload a file and return its file_id."""
