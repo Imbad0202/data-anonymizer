@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.1] - 2026-05-05
+
+### Fixed
+- Web UI upload now preserves the original extension on CJK (Chinese / Japanese / Korean) filenames. Previously `secure_filename("大同大學.pdf")` returned `"pdf"` (no dot), so the saved file had no extension and `get_parser()` rejected it with "不支援的檔案格式". The handler now sanitizes only the stem and reattaches a lowercased extension.
+
+### Security
+- Path traversal in `/api/upload`, `/api/process`, and `/api/download-all`: a multipart filename containing `../` could previously leak into the saved temp path, the output path, and zip archive entry names (zip-slip). All filesystem-bound names now run through a shared `_safe_fs_name()` helper that strips path components before sanitizing. The display name shown in the UI is unchanged.
+
+### Tests
+- Added regression tests for CJK filename extension preservation, end-to-end CJK preview (no "不支援的檔案格式"), upload path-traversal containment, and `/api/download-all` zip-arcname scrubbing.
+
 ## [2.3.0] - 2026-04-17
 
 ### Added

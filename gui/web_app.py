@@ -116,13 +116,25 @@ def create_app(upload_dir: str = None) -> Flask:
     def _load_runtime_config() -> dict:
         return resolve_logo_template_paths(load_config(CONFIG_PATH), LOGO_DIR)
 
+    def _safe_fs_name(filename: str) -> str:
+        """Strip path components, sanitize stem, keep lowercased extension.
+
+        Used for any name that lands on disk or in a zip arcname. CJK stems
+        survive secure_filename only when separated from their extension first.
+        """
+        base = os.path.basename(filename.replace("\\", "/"))
+        stem, ext = os.path.splitext(base)
+        safe_stem = secure_filename(stem) or "untitled"
+        return safe_stem + ext.lower()
+
     def build_download_name(filename: str, output_ext: str = None) -> str:
-        base, original_ext = os.path.splitext(filename)
+        safe = _safe_fs_name(filename)
+        base, original_ext = os.path.splitext(safe)
         ext = output_ext if output_ext is not None else original_ext
         return f"{base}_anonymized{ext}"
 
     def build_output_path(file_id: str, filename: str, output_ext: str = None) -> str:
-        ext = output_ext if output_ext is not None else os.path.splitext(filename)[1]
+        ext = output_ext if output_ext is not None else os.path.splitext(_safe_fs_name(filename))[1]
         output_dir = os.path.join(app.config["UPLOAD_DIR"], "output")
         os.makedirs(output_dir, exist_ok=True)
         return os.path.join(output_dir, f"{file_id}_{build_download_name(filename, ext)}")
@@ -165,7 +177,7 @@ def create_app(upload_dir: str = None) -> Flask:
             if f.filename == "":
                 continue
             file_id = str(uuid.uuid4())
-            safe_name = secure_filename(f.filename) or "untitled"
+            safe_name = _safe_fs_name(f.filename)
             save_path = os.path.join(app.config["UPLOAD_DIR"], file_id + "_" + safe_name)
             f.save(save_path)
             size = os.path.getsize(save_path)
